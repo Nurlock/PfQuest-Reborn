@@ -24,12 +24,28 @@ if not pfQuestConfig.path then
   pfQuestConfig.path = "Interface\\AddOns\\pfQuest-Reborn"
 end
 
-pfDatabase = { icons = {} }
+pfDB = pfDB or {
+  ["areatrigger"] = {},
+  ["items"] = {},
+  ["meta"] = {},
+  ["minimap"] = {},
+  ["objects"] = {},
+  ["professions"] = {},
+  ["quests"] = {},
+  ["quests-itemreq"] = {},
+  ["refloot"] = {},
+  ["units"] = {},
+  ["zones"] = {},
+}
 
-local loc = GetLocale()
 local dbs =
   { "items", "quests", "quests-itemreq", "objects", "units", "zones", "professions", "areatrigger", "refloot" }
-local noloc = { items = true, quests = true, objects = true, units = true }
+
+for _, db in ipairs(dbs) do
+  pfDB[db] = pfDB[db] or {}
+  pfDB[db]["data"] = pfDB[db]["data"] or {}
+  pfDB[db]["loc"] = pfDB[db]["loc"] or {}
+end
 
 pfDB.locales = {
   ["enUS"] = "English",
@@ -42,6 +58,11 @@ pfDB.locales = {
   ["ruRU"] = "Russian",
   ["ptBR"] = "Portuguese",
 }
+
+pfDatabase = { icons = {} }
+
+local loc = GetLocale and GetLocale() or "enUS"
+local noloc = { items = true, quests = true, objects = true, units = true }
 
 -- Patch databases to further expansions
 local function patchtable(base, diff)
@@ -236,43 +257,20 @@ local function correctEPL(tup)
 end
 pfDatabase.CorrectEPLCoord = correctEPL
 
--- detect installed locales
-for key, name in pairs(pfDB.locales) do
-  if not pfDB["quests"][key] then
-    pfDB.locales[key] = nil
-  end
-end
-
--- detect localized databases
+-- detect localized databases helper
 pfDatabase.dbstring = ""
-for id, db in pairs(dbs) do
-  -- assign existing locale
-  pfDB[db]["loc"] = pfDB[db][loc] or pfDB[db]["enUS"] or {}
-  pfDatabase.dbstring = pfDatabase.dbstring
-    .. " |cffcccccc[|cffffffff"
-    .. db
-    .. "|cffcccccc:|cff33ffcc"
-    .. (pfDB[db][loc] and loc or "enUS")
-    .. "|cffcccccc]"
-end
-
--- Free unused locale data to reduce memory
-for id, db in pairs(dbs) do
-  for locale in pairs(pfDB.locales) do
-    if pfDB[db][locale] and pfDB[db][locale] ~= pfDB[db]["loc"] then
-      pfDB[db][locale] = nil
-    end
-  end
-  if pfDB[db]["enUS"] and pfDB[db]["enUS"] ~= pfDB[db]["loc"] then
-    pfDB[db]["enUS"] = nil
+function pfDatabase:UpdateDBString()
+  self.dbstring = ""
+  local cur_loc = GetLocale and GetLocale() or "enUS"
+  for id, db in pairs(dbs) do
+    self.dbstring = self.dbstring
+      .. " |cffcccccc[|cffffffff"
+      .. db
+      .. "|cffcccccc:|cff33ffcc"
+      .. (pfDB[db][cur_loc] and cur_loc or "enUS")
+      .. "|cffcccccc]"
   end
 end
-
--- Free expansion meta/minimap tables (already merged)
-pfDB["minimap-tbc"] = nil
-pfDB["minimap-wotlk"] = nil
-pfDB["meta-tbc"] = nil
-pfDB["meta-wotlk"] = nil
 
 -- track all previous meta selections on login
 pfDatabase.tracking = CreateFrame("Frame", "pfDatabaseMetaTracking", UIParent)
@@ -462,23 +460,18 @@ end)
 -- sanity check the databases
 if isempty(pfDB["quests"]["loc"]) then
   CreateFrame("Frame"):SetScript("OnUpdate", function()
-    -- Reforged: GetTime() is session uptime; upstream's absolute `GetTime() < 3`
-    -- only held during the first 3s of the client session, so for anyone already
-    -- logged in the "wrong version" warning printed on the first tick instead of
-    -- after a 3s settle. Gate on a captured relative delay so the databases have
-    -- a moment to finish loading before we decide they are genuinely empty.
     this.started = this.started or GetTime()
     if GetTime() < this.started + 3 then
       return
     end
+    if not isempty(pfDB["quests"]["loc"]) then
+      this:Hide()
+      return
+    end
     DEFAULT_CHAT_FRAME:AddMessage(
-      "|cffff5555 !! |cffffaaaaWrong version of |cff33ffccpf|cffffffffQuest|cffffaaaa detected.|cffff5555 !!"
+      "|cffff5555 !! |cffffaaaaNo database loaded in |cff33ffccpf|cffffffffQuest|cffffaaaa [Reborn].|cffff5555 !!"
     )
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccThe language pack does not match the gameclient's language.")
-    DEFAULT_CHAT_FRAME:AddMessage(
-      "|cffffccccYou'd either need to pick the complete or the " .. GetLocale() .. "-version."
-    )
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccFor more details, see: https://shagu.org/pfQuest")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccPlease make sure |cffffffffpfQuest-Reborn-vanilla|cffffcccc (or epoch/tbc/wotlk) is installed in Interface/AddOns.")
     this:Hide()
   end)
 end
@@ -562,7 +555,68 @@ local questMeta = {
 
 -- Add database shortcuts and attach lazy metatables
 local items, units, objects, quests, zones, refloot, itemreq, areatrigger, professions, qrel
+
+function pfDatabase:DetectFlavor()
+  local realm = GetRealmName and GetRealmName() or ""
+  local r = strlower(realm)
+  if strfind(r, "epoch") then
+    return "epoch"
+  elseif strfind(r, "tbc") or strfind(r, "crusade") or strfind(r, "outland") then
+    return "tbc"
+  elseif strfind(r, "chromie") or strfind(r, "wotlk") or strfind(r, "wrath") or strfind(r, "icecrown") or strfind(r, "northrend") then
+    return "wotlk"
+  end
+  return "vanilla"
+end
+
+function pfDatabase:LoadDatabase(flavor)
+  flavor = flavor or (pfQuest_config and pfQuest_config["db_flavor"] ~= "auto" and pfQuest_config["db_flavor"]) or self:DetectFlavor()
+
+  local modName = "pfQuest-Reborn-" .. flavor
+  local loaded = false
+  if LoadAddOn then
+    local ok, reason = LoadAddOn(modName)
+    if ok then
+      loaded = true
+    elseif reason then
+      if flavor ~= "vanilla" then
+        local fb_ok = LoadAddOn("pfQuest-Reborn-vanilla")
+        if fb_ok then
+          loaded = true
+          flavor = "vanilla"
+        end
+      end
+      if not loaded and DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff5555pfQuest: Could not load " .. modName .. " (" .. tostring(reason) .. ")")
+      end
+    end
+  end
+
+  self.activeFlavor = flavor
+  self.Reload()
+  if self.BuildNameIndex then
+    self:BuildNameIndex()
+  end
+  if self.BuildStaticRejectSet then
+    self:BuildStaticRejectSet()
+  end
+
+  if pfBrowser and pfBrowser.RefreshDatabaseReferences then
+    pfBrowser:RefreshDatabaseReferences()
+  end
+  if pfMap and pfMap.RefreshDatabaseReferences then
+    pfMap:RefreshDatabaseReferences()
+  end
+
+  return loaded
+end
+
 pfDatabase.Reload = function()
+  local cur_loc = GetLocale and GetLocale() or "enUS"
+  for _, db in ipairs(dbs) do
+    pfDB[db]["loc"] = pfDB[db][cur_loc] or pfDB[db]["enUS"] or pfDB[db]["loc"] or {}
+  end
+
   items = pfDB["items"]["data"]
   units = pfDB["units"]["data"]
   objects = pfDB["objects"]["data"]
@@ -571,7 +625,7 @@ pfDatabase.Reload = function()
   refloot = pfDB["refloot"] and pfDB["refloot"]["data"] or {}
   itemreq = pfDB["quests-itemreq"] and pfDB["quests-itemreq"]["data"] or {}
   areatrigger = pfDB["areatrigger"] and pfDB["areatrigger"]["data"] or {}
-  professions = pfDB["professions"]["loc"]
+  professions = pfDB["professions"]["loc"] or pfDB["professions"]["enUS"] or {}
   qrel = pfDB["quests"]["relations"] or {}
 
   -- Bind metatables (sub-millisecond pointer binding, zero table allocations)
@@ -602,7 +656,19 @@ pfDatabase.Reload = function()
   end
 end
 
-pfDatabase.Reload()
+pfDatabase:LoadDatabase()
+
+local dbEventFrame = CreateFrame("Frame")
+dbEventFrame:RegisterEvent("ADDON_LOADED")
+dbEventFrame:SetScript("OnEvent", function()
+  if arg1 == "pfQuest-Reborn" then
+    if pfQuest_config and pfQuest_config["db_flavor"] and pfQuest_config["db_flavor"] ~= "auto" then
+      if pfQuest_config["db_flavor"] ~= pfDatabase.activeFlavor then
+        pfDatabase:LoadDatabase(pfQuest_config["db_flavor"])
+      end
+    end
+  end
+end)
 function pfDatabase.PackCoords() end
 function pfDatabase.PackDropData() end
 

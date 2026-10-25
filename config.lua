@@ -85,6 +85,7 @@ pfQuest_defconfig = {
   { text = L["Show Help On Tooltips"], default = "1", type = "checkbox", config = "tooltiphelp" },
   { text = L["Show Level On Quest Tracker"], default = "1", type = "checkbox", config = "trackerlevel" },
   { text = L["Show Level On Quest Log"], default = "0", type = "checkbox", config = "questloglevel" },
+  { text = "Database Flavor (auto, vanilla, epoch, tbc, wotlk)", default = "auto", type = "text", config = "db_flavor" },
 
   { text = L["Questing"], default = nil, type = "header" },
   { text = L["Quest Tracker Visibility"], default = "0", type = "text", config = "trackeralpha" },
