@@ -559,7 +559,8 @@ local items, units, objects, quests, zones, refloot, itemreq, areatrigger, profe
 function pfDatabase:DetectFlavor()
   local realm = GetRealmName and GetRealmName() or ""
   local r = strlower(realm)
-  if strfind(r, "epoch") then
+  local rlist = strlower(GetCVar and GetCVar("realmList") or "")
+  if strfind(r, "epoch") or strfind(r, "glittermurk") or strfind(r, "krazzworks") or strfind(rlist, "epoch") then
     return "epoch"
   elseif strfind(r, "tbc") or strfind(r, "crusade") or strfind(r, "outland") then
     return "tbc"
@@ -571,6 +572,19 @@ end
 
 function pfDatabase:LoadDatabase(flavor)
   flavor = flavor or (pfQuest_config and pfQuest_config["db_flavor"] ~= "auto" and pfQuest_config["db_flavor"]) or self:DetectFlavor()
+
+  -- If data was already loaded (e.g. embedded flavor in game folder), bind and return
+  if pfDB["quests"]["data"] and next(pfDB["quests"]["data"]) then
+    self.activeFlavor = flavor
+    self.Reload()
+    if self.BuildNameIndex then
+      self:BuildNameIndex()
+    end
+    if self.BuildStaticRejectSet then
+      self:BuildStaticRejectSet()
+    end
+    return true
+  end
 
   local modName = "pfQuest-Reborn-" .. flavor
   local loaded = false
