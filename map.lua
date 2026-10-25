@@ -384,10 +384,13 @@ function pfMap:HasMinimap()
 end
 
 function pfMap.tooltip:GetColor(min, max)
-  local max = max or 1
-  local min = min or max or 1
+  local max = tonumber(max) or 1
+  local min = tonumber(min) or max or 1
+  if max <= 0 then max = 1 end
 
   local perc = min / max
+  if perc < 0 then perc = 0 elseif perc > 1 then perc = 1 end
+
   local r1, g1, b1, r2, g2, b2
   if perc <= 0.5 then
     perc = perc * 2
@@ -398,9 +401,9 @@ function pfMap.tooltip:GetColor(min, max)
     r1, g1, b1 = 1, 1, 0
     r2, g2, b2 = 0, 1, 0
   end
-  r = r1 + (r2 - r1) * perc
-  g = g1 + (g2 - g1) * perc
-  b = b1 + (b2 - b1) * perc
+  local r = r1 + (r2 - r1) * perc
+  local g = g1 + (g2 - g1) * perc
+  local b = b1 + (b2 - b1) * perc
 
   return r, g, b
 end

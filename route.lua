@@ -58,9 +58,12 @@ local mplayerpath = {} -- minimap
 
 local function ClearPath(path)
   for id, tex in pairs(path) do
-    tex.enable = nil
-    tex:Hide()
+    if type(id) == "number" then
+      tex.enable = nil
+      tex:Hide()
+    end
   end
+  path.count = 0
 end
 
 local function DrawLine(path, x, y, nx, ny, hl, minimap)
@@ -117,13 +120,8 @@ local function DrawLine(path, x, y, nx, ny, hl, minimap)
     end
 
     if display then
-      local nline = tablesize(path) + 1
-      for id, tex in pairs(path) do
-        if not tex.enable then
-          nline = id
-          break
-        end
-      end
+      path.count = (path.count or 0) + 1
+      local nline = path.count
 
       path[nline] = path[nline] or (minimap and pfMap.drawlayer or WorldMapButton.routes):CreateTexture(nil, "OVERLAY")
       path[nline]:SetWidth(4)
@@ -462,7 +460,7 @@ pfQuest.route.arrow:SetScript("OnShow", function()
   end
 end)
 
-local invalid, lasttarget
+local invalid, lasttarget, target
 local lastangle, lastt
 local xplayer, yplayer, wrongmap
 local xDelta, yDelta, dir, angle

@@ -12,6 +12,7 @@ local panelheight = 18
 local entryheight = 20
 -- Reforged: vertical room for the per-quest progress bar under each title row
 local barpad = 5
+local tracker
 
 local function HideTooltip()
   GameTooltip:Hide()

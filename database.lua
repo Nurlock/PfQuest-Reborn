@@ -628,6 +628,22 @@ function pfDatabase:LoadDatabase(name)
   return self.loadedModule ~= nil
 end
 
+function pfDatabase:ApplyOverwrites()
+  if not pfDB or not pfDB["quests"] or not pfDB["quests"]["data"] then
+    return
+  end
+  local qdata = pfDB["quests"]["data"]
+  -- [[ Quest: Great Bear Spirit ]]
+  -- Unit: Great Bear Spirit (11956)
+  -- Type: Talk/Gossip Menu Requirement
+  if qdata[5929] and not qdata[5929]["obj"] and not qdata[5929]["__o"] then
+    qdata[5929]["obj"] = { ["U"] = { 11956 } }
+  end
+  if qdata[5930] and not qdata[5930]["obj"] and not qdata[5930]["__o"] then
+    qdata[5930]["obj"] = { ["U"] = { 11956 } }
+  end
+end
+
 pfDatabase.Reload = function()
   local cur_loc = GetLocale and GetLocale() or "enUS"
   for _, db in ipairs(dbs) do

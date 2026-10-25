@@ -177,11 +177,15 @@ function pfQuest:SortedPairs(t, index, reverse)
   local order
   if reverse then
     order = function(t, a, b)
-      return t[a][index] < t[b][index]
+      local va = (t[a] and t[a][index]) or 0
+      local vb = (t[b] and t[b][index]) or 0
+      return va < vb
     end
   else
     order = function(t, a, b)
-      return t[a][index] > t[b][index]
+      local va = (t[a] and t[a][index]) or 0
+      local vb = (t[b] and t[b][index]) or 0
+      return va > vb
     end
   end
   table.sort(keys, function(a, b)
