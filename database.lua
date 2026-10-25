@@ -490,7 +490,7 @@ if isempty(pfDB["quests"]["loc"]) then
     DEFAULT_CHAT_FRAME:AddMessage(
       "|cffff5555 !! |cffffaaaaNo database loaded in |cff33ffccpf|cffffffffQuest|cffffaaaa [Reborn].|cffff5555 !!"
     )
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccPlease enable a database addon in your AddOns menu (e.g. pfQuest-Reborn-epoch).|r")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccPlease ensure database files are present in pfQuest-Reborn/db/.|r")
     this:Hide()
   end)
 end
@@ -575,67 +575,6 @@ local questMeta = {
 -- Add database shortcuts and attach lazy metatables
 local items, units, objects, quests, zones, refloot, itemreq, areatrigger, professions, qrel
 
-function pfDatabase:LoadDatabase(name)
-  -- If data was already loaded (e.g. embedded files or already loaded secondary addon), reload and return
-  if pfDB["quests"]["data"] and next(pfDB["quests"]["data"]) then
-    self.Reload()
-    if self.BuildNameIndex then
-      self:BuildNameIndex()
-    end
-    if self.BuildStaticRejectSet then
-      self:BuildStaticRejectSet()
-    end
-    return true
-  end
-
-  -- If an explicit module name is given, try loading it
-  if name and LoadAddOn then
-    local ok = LoadAddOn(name)
-    if ok then
-      self.loadedModule = name
-    end
-  end
-
-  -- Otherwise find the enabled secondary database addon selected in the WoW AddOn list
-  if not self.loadedModule and GetNumAddOns and LoadAddOn then
-    for i = 1, GetNumAddOns() do
-      local addonName, _, _, enabled, loadable = GetAddOnInfo(i)
-      if (enabled or loadable) and strsub(addonName, 1, 15) == "pfQuest-Reborn-" then
-        local ok, reason = LoadAddOn(addonName)
-        if ok then
-          self.loadedModule = addonName
-          break
-        end
-      end
-    end
-  end
-
-  -- If nothing was loaded, display an error message
-  if not self.loadedModule and not (pfDB["quests"]["data"] and next(pfDB["quests"]["data"])) then
-    if DEFAULT_CHAT_FRAME then
-      DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[pfQuest-Reborn]|r |cffffaaaaNo database addon loaded! Please enable a database addon in your AddOns menu (e.g. pfQuest-Reborn-epoch).|r")
-    end
-    return false
-  end
-
-  self.Reload()
-  if self.BuildNameIndex then
-    self:BuildNameIndex()
-  end
-  if self.BuildStaticRejectSet then
-    self:BuildStaticRejectSet()
-  end
-
-  if pfBrowser and pfBrowser.RefreshDatabaseReferences then
-    pfBrowser:RefreshDatabaseReferences()
-  end
-  if pfMap and pfMap.RefreshDatabaseReferences then
-    pfMap:RefreshDatabaseReferences()
-  end
-
-  return self.loadedModule ~= nil
-end
-
 pfDatabase.Reload = function()
   local cur_loc = GetLocale and GetLocale() or "enUS"
   for _, db in ipairs(dbs) do
@@ -682,6 +621,8 @@ pfDatabase.Reload = function()
     end
   end
 end
+
+pfDatabase.Reload()
 
 -- Inverted quest title index: maps title → {id, id, ...} for instant O(1) questlog lookups.
 pfDatabase.nameIndex = {}
@@ -751,28 +692,7 @@ function pfDatabase:BuildStaticRejectSet()
   end
 end
 
-pfDatabase:LoadDatabase()
 pfDatabase:BuildNameIndex()
-
-local dbEventFrame = CreateFrame("Frame")
-dbEventFrame:RegisterEvent("ADDON_LOADED")
-dbEventFrame:RegisterEvent("PLAYER_LOGIN")
-dbEventFrame:SetScript("OnEvent", function(frame, event, arg1)
-  if event == "ADDON_LOADED" then
-    if arg1 and strsub(tostring(arg1), 1, 15) == "pfQuest-Reborn-" then
-      pfDatabase.Reload()
-      pfDatabase:BuildNameIndex()
-      pfDatabase:BuildStaticRejectSet()
-    end
-  elseif event == "PLAYER_LOGIN" then
-    if not (pfDB["quests"]["data"] and next(pfDB["quests"]["data"])) then
-      pfDatabase:LoadDatabase()
-    end
-    pfDatabase.Reload()
-    pfDatabase:BuildNameIndex()
-    pfDatabase:BuildStaticRejectSet()
-  end
-end)
 
 -- Reusable parse_obj table (cleared and reused each SearchQuestID call)
 local parse_obj = { ["U"] = {}, ["O"] = {}, ["I"] = {} }
