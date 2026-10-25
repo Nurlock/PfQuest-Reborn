@@ -490,7 +490,7 @@ if isempty(pfDB["quests"]["loc"]) then
     DEFAULT_CHAT_FRAME:AddMessage(
       "|cffff5555 !! |cffffaaaaNo database loaded in |cff33ffccpf|cffffffffQuest|cffffaaaa [Reborn].|cffff5555 !!"
     )
-    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccPlease make sure |cffffffffpfQuest-Reborn-vanilla|cffffcccc (or epoch/tbc/wotlk) is installed in Interface/AddOns.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cffffccccPlease enable a database addon in your AddOns menu (e.g. pfQuest-Reborn-epoch).|r")
     this:Hide()
   end)
 end
@@ -610,6 +610,14 @@ function pfDatabase:LoadDatabase(name)
     end
   end
 
+  -- If nothing was loaded, display an error message
+  if not self.loadedModule and not (pfDB["quests"]["data"] and next(pfDB["quests"]["data"])) then
+    if DEFAULT_CHAT_FRAME then
+      DEFAULT_CHAT_FRAME:AddMessage("|cffff5555[pfQuest-Reborn]|r |cffffaaaaNo database addon loaded! Please enable a database addon in your AddOns menu (e.g. pfQuest-Reborn-epoch).|r")
+    end
+    return false
+  end
+
   self.Reload()
   if self.BuildNameIndex then
     self:BuildNameIndex()
@@ -626,22 +634,6 @@ function pfDatabase:LoadDatabase(name)
   end
 
   return self.loadedModule ~= nil
-end
-
-function pfDatabase:ApplyOverwrites()
-  if not pfDB or not pfDB["quests"] or not pfDB["quests"]["data"] then
-    return
-  end
-  local qdata = pfDB["quests"]["data"]
-  -- [[ Quest: Great Bear Spirit ]]
-  -- Unit: Great Bear Spirit (11956)
-  -- Type: Talk/Gossip Menu Requirement
-  if qdata[5929] and not qdata[5929]["obj"] and not qdata[5929]["__o"] then
-    qdata[5929]["obj"] = { ["U"] = { 11956 } }
-  end
-  if qdata[5930] and not qdata[5930]["obj"] and not qdata[5930]["__o"] then
-    qdata[5930]["obj"] = { ["U"] = { 11956 } }
-  end
 end
 
 pfDatabase.Reload = function()
@@ -688,10 +680,6 @@ pfDatabase.Reload = function()
     for _, entry in pairs(quests) do
       setmetatable(entry, questMeta)
     end
-  end
-
-  if self.ApplyOverwrites then
-    self:ApplyOverwrites()
   end
 end
 
@@ -765,6 +753,26 @@ end
 
 pfDatabase:LoadDatabase()
 pfDatabase:BuildNameIndex()
+
+local dbEventFrame = CreateFrame("Frame")
+dbEventFrame:RegisterEvent("ADDON_LOADED")
+dbEventFrame:RegisterEvent("PLAYER_LOGIN")
+dbEventFrame:SetScript("OnEvent", function(frame, event, arg1)
+  if event == "ADDON_LOADED" then
+    if arg1 and strsub(tostring(arg1), 1, 15) == "pfQuest-Reborn-" then
+      pfDatabase.Reload()
+      pfDatabase:BuildNameIndex()
+      pfDatabase:BuildStaticRejectSet()
+    end
+  elseif event == "PLAYER_LOGIN" then
+    if not (pfDB["quests"]["data"] and next(pfDB["quests"]["data"])) then
+      pfDatabase:LoadDatabase()
+    end
+    pfDatabase.Reload()
+    pfDatabase:BuildNameIndex()
+    pfDatabase:BuildStaticRejectSet()
+  end
+end)
 
 -- Reusable parse_obj table (cleared and reused each SearchQuestID call)
 local parse_obj = { ["U"] = {}, ["O"] = {}, ["I"] = {} }
