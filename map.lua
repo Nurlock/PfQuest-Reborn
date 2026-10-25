@@ -110,7 +110,7 @@ local function IsEmpty(tabl)
 end
 
 -- Ensure pfQuestConfig.path exists (fallback if config.lua failed)
-local addon_path = (pfQuestConfig and pfQuestConfig.path) or "Interface\\AddOns\\pfQuest"
+local addon_path = (pfQuestConfig and pfQuestConfig.path) or "Interface\\AddOns\\pfQuest-Reborn"
 
 local layers = {
   -- regular icons

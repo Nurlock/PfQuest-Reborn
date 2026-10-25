@@ -21,7 +21,7 @@ if not pfQuestConfig then
   pfQuestConfig:Hide()
 end
 if not pfQuestConfig.path then
-  pfQuestConfig.path = "Interface\\AddOns\\pfQuest"
+  pfQuestConfig.path = "Interface\\AddOns\\pfQuest-Reborn"
 end
 
 pfDatabase = { icons = {} }
