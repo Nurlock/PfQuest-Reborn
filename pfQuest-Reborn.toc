@@ -1,7 +1,7 @@
 ## Interface: 30300
 ## Title: |cff33ffccpf|cffffffffQuest|r |cFF888888[Reborn]|r
 ## Author: Shagu, txtsd, Nurlock
-## Notes: A Questhelper and Database for Vanilla WoW (3.3.5a client) with Questie group quest tracking comms -- Reborn edition
+## Notes: A Questhelper and Database for WoW 3.3.5a with Questie group tracking comms -- Reborn edition
 ## Notes-ruRU: Облегченный помощник заданий и база данных
 ## Version: 1.0.0
 ## OptionalDeps: pfUI-wotlk, GW2_UI

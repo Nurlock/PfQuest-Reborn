@@ -73,11 +73,6 @@ local validmaps = setmetatable({}, { __mode = "kv" })
 local rgbcache = setmetatable({}, { __mode = "kv" })
 local minimap_sizes = pfDB["minimap"]
 
-pfMap = pfMap or {}
-function pfMap:RefreshDatabaseReferences()
-  minimap_sizes = pfDB["minimap"]
-  if pfMap then pfMap.minimap_sizes = minimap_sizes end
-end
 local minimap_zoom = {
   [0] = {
     [0] = 300,

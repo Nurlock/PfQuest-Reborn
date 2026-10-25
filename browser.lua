@@ -34,15 +34,6 @@ local refloot = pfDB["refloot"] and pfDB["refloot"]["data"] or {}
 local quests = pfDB["quests"]["data"]
 local zones = pfDB["zones"]["loc"]
 
-pfBrowser = pfBrowser or {}
-function pfBrowser:RefreshDatabaseReferences()
-  items = pfDB["items"]["data"]
-  units = pfDB["units"]["data"]
-  objects = pfDB["objects"]["data"]
-  refloot = pfDB["refloot"] and pfDB["refloot"]["data"] or {}
-  quests = pfDB["quests"]["data"]
-  zones = pfDB["zones"]["loc"]
-end
 
 local function ShowTooltip()
   if not this.tooltips then

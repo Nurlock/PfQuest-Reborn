@@ -38,13 +38,16 @@ pfDB = pfDB or {
   ["zones"] = {},
 }
 
+local loc = GetLocale and GetLocale() or "enUS"
+local noloc = { items = true, quests = true, objects = true, units = true }
+
 local dbs =
   { "items", "quests", "quests-itemreq", "objects", "units", "zones", "professions", "areatrigger", "refloot" }
 
 for _, db in ipairs(dbs) do
   pfDB[db] = pfDB[db] or {}
   pfDB[db]["data"] = pfDB[db]["data"] or {}
-  pfDB[db]["loc"] = pfDB[db]["loc"] or {}
+  pfDB[db]["loc"] = pfDB[db][loc] or pfDB[db]["enUS"] or pfDB[db]["loc"] or {}
 end
 
 pfDB.locales = {
@@ -61,9 +64,6 @@ pfDB.locales = {
 
 pfDatabase = pfDatabase or { icons = {} }
 pfDatabase.icons = pfDatabase.icons or {}
-
-local loc = GetLocale and GetLocale() or "enUS"
-local noloc = { items = true, quests = true, objects = true, units = true }
 
 -- Patch databases to further expansions
 local function patchtable(base, diff)
