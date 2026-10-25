@@ -208,6 +208,7 @@ end
 for _, current in pairs(candidates) do
   local _, title = GetAddOnInfo(current)
   if title then
+    pfQuestConfig.addonName = current
     pfQuestConfig.path = "Interface\\AddOns\\" .. current
     pfQuestConfig.version = tostring(GetAddOnMetadata(current, "Version"))
     break
@@ -714,9 +715,9 @@ pfQuestConfig:SetScript("OnEvent", function()
   -- install folder -- the canonical pfQuest-Reforged folder loaded with no
   -- config defaults, no settings entries and a nil pfQuest_track (QA: empty
   -- config window, dead arrow, menu.lua crash on fresh installs). The
-  -- run-once flag keeps a second pfQuest*-named addon from double-building
-  -- the settings entries.
-  if not pfQuestConfig.initialized and strsub(tostring(arg1), 1, 7) == "pfQuest" then
+  -- Match only the core addon's ADDON_LOADED event, not child database modules
+  local mainAddon = pfQuestConfig.addonName or "pfQuest-Reborn"
+  if not pfQuestConfig.initialized and arg1 == mainAddon then
     pfQuestConfig.initialized = true
     pfQuestConfig:LoadConfig()
     pfQuestConfig:MigrateHistory()

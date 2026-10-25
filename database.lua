@@ -59,7 +59,8 @@ pfDB.locales = {
   ["ptBR"] = "Portuguese",
 }
 
-pfDatabase = { icons = {} }
+pfDatabase = pfDatabase or { icons = {} }
+pfDatabase.icons = pfDatabase.icons or {}
 
 local loc = GetLocale and GetLocale() or "enUS"
 local noloc = { items = true, quests = true, objects = true, units = true }
@@ -276,14 +277,15 @@ end
 pfDatabase.tracking = CreateFrame("Frame", "pfDatabaseMetaTracking", UIParent)
 pfDatabase.tracking:RegisterEvent("PLAYER_ENTERING_WORLD")
 pfDatabase.tracking:SetScript("OnEvent", function()
-  -- break on empty config
-  if not pfQuest_track then
-    return
-  end
-
   -- build static reject set now that all addon Lua is loaded and
   -- UnitRace/UnitClass/GetBitByRace are all available
   pfDatabase:BuildStaticRejectSet()
+
+  -- break on empty config
+  if not pfQuest_track then
+    this:UnregisterAllEvents()
+    return
+  end
 
   -- enable all tracked
   for name, data in pairs(pfQuest_track) do
@@ -418,6 +420,23 @@ CreateFrame("Frame", "pfQuestLocaleCheck", UIParent):SetScript("OnUpdate", funct
     -- once the tooltip shows up, read the name and hide it
     local name = ItemRefTooltipTextLeft1:GetText()
     ItemRefTooltip:Hide()
+
+    -- if the localized database table is missing entirely, fall back to enUS immediately
+    if not (pfDB["items"][loc] and pfDB["items"][loc][6948]) then
+      pfDatabase.dbstring = ""
+      for id, db in pairs(dbs) do
+        pfDB[db]["loc"] = pfDB[db]["enUS"] or {}
+        pfDatabase.dbstring = pfDatabase.dbstring
+          .. " |cffcccccc[|cffffffff"
+          .. db
+          .. "|cffcccccc:|cff33ffccenUS|cffcccccc]"
+      end
+      pfDatabase.localized = true
+      pfDatabase:BuildNameIndex()
+      pfDatabase:BuildStaticRejectSet()
+      this:Hide()
+      return
+    end
 
     -- check for noloc
     if name and name ~= "" and pfDB["items"][loc] and pfDB["items"][loc][6948] then
@@ -654,11 +673,11 @@ pfDatabase.Reload = function()
       setmetatable(entry, questMeta)
     end
   end
-end
 
-pfDatabase:LoadDatabase()
-function pfDatabase.PackCoords() end
-function pfDatabase.PackDropData() end
+  if self.ApplyOverwrites then
+    self:ApplyOverwrites()
+  end
+end
 
 -- Inverted quest title index: maps title → {id, id, ...} for instant O(1) questlog lookups.
 pfDatabase.nameIndex = {}
@@ -728,6 +747,7 @@ function pfDatabase:BuildStaticRejectSet()
   end
 end
 
+pfDatabase:LoadDatabase()
 pfDatabase:BuildNameIndex()
 
 -- Reusable parse_obj table (cleared and reused each SearchQuestID call)

@@ -256,18 +256,33 @@ function Stream:ReadInt()
 end
 
 function Stream:WriteLong(val)
-  self:WriteByte(rshift(val, 56) % 256)
-  self:WriteByte(rshift(val, 48) % 256)
-  self:WriteByte(rshift(val, 40) % 256)
-  self:WriteByte(rshift(val, 32) % 256)
-  self:WriteByte(rshift(val, 24) % 256)
-  self:WriteByte(rshift(val, 16) % 256)
-  self:WriteByte(rshift(val, 8) % 256)
+  self:WriteByte(floor(val / 72057594037927936) % 256) -- 2^56
+  self:WriteByte(floor(val / 281474976710656) % 256)   -- 2^48
+  self:WriteByte(floor(val / 1099511627776) % 256)     -- 2^40
+  self:WriteByte(floor(val / 4294967296) % 256)        -- 2^32
+  self:WriteByte(floor(val / 16777216) % 256)          -- 2^24
+  self:WriteByte(floor(val / 65536) % 256)             -- 2^16
+  self:WriteByte(floor(val / 256) % 256)               -- 2^8
   self:WriteByte(val % 256)
 end
 
 function Stream:ReadLong()
-  return lshift(self:ReadByte(), 56) + lshift(self:ReadByte(), 48) + lshift(self:ReadByte(), 40) + lshift(self:ReadByte(), 32) + lshift(self:ReadByte(), 24) + lshift(self:ReadByte(), 16) + lshift(self:ReadByte(), 8) + self:ReadByte()
+  local b7 = self:ReadByte() or 0
+  local b6 = self:ReadByte() or 0
+  local b5 = self:ReadByte() or 0
+  local b4 = self:ReadByte() or 0
+  local b3 = self:ReadByte() or 0
+  local b2 = self:ReadByte() or 0
+  local b1 = self:ReadByte() or 0
+  local b0 = self:ReadByte() or 0
+  return b7 * 72057594037927936
+    + b6 * 281474976710656
+    + b5 * 1099511627776
+    + b4 * 4294967296
+    + b3 * 16777216
+    + b2 * 65536
+    + b1 * 256
+    + b0
 end
 
 function Stream:WriteTinyString(val)
@@ -670,12 +685,23 @@ function comms:SendComm(prefix, text, distribution, target)
       CTL:SendAddonMessage("NORMAL", chunk.prefix, chunk.text, distribution, target)
     end
   else
-    if #chunks == 1 then
+    if #sendQueue == 0 and #chunks == 1 then
       SendAddonMessage(chunks[1].prefix, chunks[1].text, distribution, target)
-    else
+    elseif #sendQueue == 0 then
       -- Multi-chunk burst protection: send first chunk immediately, throttle subsequent chunks
       SendAddonMessage(chunks[1].prefix, chunks[1].text, distribution, target)
       for i = 2, #chunks do
+        tinsert(sendQueue, {
+          prefix = chunks[i].prefix,
+          text = chunks[i].text,
+          distribution = distribution,
+          target = target,
+        })
+      end
+      sendFrame:Show()
+    else
+      -- Pending queue exists: enqueue all chunks to preserve strict FIFO packet ordering
+      for i = 1, #chunks do
         tinsert(sendQueue, {
           prefix = chunks[i].prefix,
           text = chunks[i].text,
