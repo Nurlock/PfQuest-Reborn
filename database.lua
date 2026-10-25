@@ -556,26 +556,9 @@ local questMeta = {
 -- Add database shortcuts and attach lazy metatables
 local items, units, objects, quests, zones, refloot, itemreq, areatrigger, professions, qrel
 
-function pfDatabase:DetectFlavor()
-  local realm = GetRealmName and GetRealmName() or ""
-  local r = strlower(realm)
-  local rlist = strlower(GetCVar and GetCVar("realmList") or "")
-  if strfind(r, "epoch") or strfind(r, "glittermurk") or strfind(r, "krazzworks") or strfind(rlist, "epoch") then
-    return "epoch"
-  elseif strfind(r, "tbc") or strfind(r, "crusade") or strfind(r, "outland") then
-    return "tbc"
-  elseif strfind(r, "chromie") or strfind(r, "wotlk") or strfind(r, "wrath") or strfind(r, "icecrown") or strfind(r, "northrend") then
-    return "wotlk"
-  end
-  return "vanilla"
-end
-
-function pfDatabase:LoadDatabase(flavor)
-  flavor = flavor or (pfQuest_config and pfQuest_config["db_flavor"] ~= "auto" and pfQuest_config["db_flavor"]) or self:DetectFlavor()
-
-  -- If data was already loaded (e.g. embedded flavor in game folder), bind and return
+function pfDatabase:LoadDatabase(name)
+  -- If data was already loaded (e.g. embedded files or already loaded secondary addon), reload and return
   if pfDB["quests"]["data"] and next(pfDB["quests"]["data"]) then
-    self.activeFlavor = flavor
     self.Reload()
     if self.BuildNameIndex then
       self:BuildNameIndex()
@@ -586,27 +569,28 @@ function pfDatabase:LoadDatabase(flavor)
     return true
   end
 
-  local modName = "pfQuest-Reborn-" .. flavor
-  local loaded = false
-  if LoadAddOn then
-    local ok, reason = LoadAddOn(modName)
+  -- If an explicit module name is given, try loading it
+  if name and LoadAddOn then
+    local ok = LoadAddOn(name)
     if ok then
-      loaded = true
-    elseif reason then
-      if flavor ~= "vanilla" then
-        local fb_ok = LoadAddOn("pfQuest-Reborn-vanilla")
-        if fb_ok then
-          loaded = true
-          flavor = "vanilla"
+      self.loadedModule = name
+    end
+  end
+
+  -- Otherwise find the enabled secondary database addon selected in the WoW AddOn list
+  if not self.loadedModule and GetNumAddOns and LoadAddOn then
+    for i = 1, GetNumAddOns() do
+      local addonName, _, _, enabled, loadable = GetAddOnInfo(i)
+      if (enabled or loadable) and strsub(addonName, 1, 15) == "pfQuest-Reborn-" then
+        local ok, reason = LoadAddOn(addonName)
+        if ok then
+          self.loadedModule = addonName
+          break
         end
-      end
-      if not loaded and DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff5555pfQuest: Could not load " .. modName .. " (" .. tostring(reason) .. ")")
       end
     end
   end
 
-  self.activeFlavor = flavor
   self.Reload()
   if self.BuildNameIndex then
     self:BuildNameIndex()
@@ -622,7 +606,7 @@ function pfDatabase:LoadDatabase(flavor)
     pfMap:RefreshDatabaseReferences()
   end
 
-  return loaded
+  return self.loadedModule ~= nil
 end
 
 pfDatabase.Reload = function()
@@ -630,6 +614,8 @@ pfDatabase.Reload = function()
   for _, db in ipairs(dbs) do
     pfDB[db]["loc"] = pfDB[db][cur_loc] or pfDB[db]["enUS"] or pfDB[db]["loc"] or {}
   end
+
+  pfDatabase:UpdateDBString()
 
   items = pfDB["items"]["data"]
   units = pfDB["units"]["data"]
@@ -671,18 +657,6 @@ pfDatabase.Reload = function()
 end
 
 pfDatabase:LoadDatabase()
-
-local dbEventFrame = CreateFrame("Frame")
-dbEventFrame:RegisterEvent("ADDON_LOADED")
-dbEventFrame:SetScript("OnEvent", function()
-  if arg1 == "pfQuest-Reborn" then
-    if pfQuest_config and pfQuest_config["db_flavor"] and pfQuest_config["db_flavor"] ~= "auto" then
-      if pfQuest_config["db_flavor"] ~= pfDatabase.activeFlavor then
-        pfDatabase:LoadDatabase(pfQuest_config["db_flavor"])
-      end
-    end
-  end
-end)
 function pfDatabase.PackCoords() end
 function pfDatabase.PackDropData() end
 

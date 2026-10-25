@@ -10,16 +10,14 @@ Built on [pfQuest](https://github.com/shagu/pfQuest) (Shagu, GPLv3) and moderniz
 
 ## Key Features
 
-- **Decoupled Load-on-Demand (LoD) Architecture**:
+- **Decoupled Secondary Addon Architecture**:
   - The core addon `pfQuest-Reborn` is ultra-lightweight (~500 KB) containing the UI, engine, map layer, and Questie comms.
-  - Databases ship as standalone child modules marked `## LoadOnDemand: 1`:
+  - Databases ship as standalone secondary modules selectable in your character select **AddOns** screen:
     - `pfQuest-Reborn-vanilla` (Standard Vanilla 1.12 content)
     - `pfQuest-Reborn-epoch` (Project Epoch custom content and quests)
     - `pfQuest-Reborn-tbc` (The Burning Crusade content)
     - `pfQuest-Reborn-wotlk` (Wrath of the Lich King content)
-  - **Dynamic Realm Auto-Detection**: The active realm is automatically detected (`GetRealmName()`), loading only the relevant database into memory.
-  - **Zero RAM Overhead**: Inactive expansion databases consume **0 MB of Lua RAM** and **0 seconds of parse time**.
-  - Manual override available in settings (`/pfquest` -> General -> Database Flavor).
+  - **Zero RAM Overhead**: Only the single database you enable in the WoW AddOns list is loaded. Inactive database modules consume **0 MB of Lua RAM** and **0 seconds of parse time**.
 
 - **High-Performance Lazy Metatables**:
   - Coordinates, drops, and quest relationships deserialized lazily on first access.
