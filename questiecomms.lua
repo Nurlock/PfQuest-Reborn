@@ -640,9 +640,13 @@ end
 
 local sendQueue = {}
 local sendFrame = CreateFrame("Frame")
+sendFrame:Hide()
 local lastSendTime = 0
 sendFrame:SetScript("OnUpdate", function()
-  if #sendQueue == 0 then return end
+  if #sendQueue == 0 then
+    this:Hide()
+    return
+  end
   local now = GetTime()
   if now - lastSendTime < 0.05 then return end
   lastSendTime = now
@@ -650,6 +654,10 @@ sendFrame:SetScript("OnUpdate", function()
   local msg = table.remove(sendQueue, 1)
   if msg then
     SendAddonMessage(msg.prefix, msg.text, msg.distribution, msg.target)
+  end
+
+  if #sendQueue == 0 then
+    this:Hide()
   end
 end)
 
@@ -675,6 +683,7 @@ function comms:SendComm(prefix, text, distribution, target)
           target = target,
         })
       end
+      sendFrame:Show()
     end
   end
 end

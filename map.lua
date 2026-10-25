@@ -1899,8 +1899,8 @@ end)
 
 local hlstate, shiftstate, transition, hidecluster, fps, resetmap
 pfMap:SetScript("OnUpdate", function()
-  -- handle highlights and animations
-  if pfMap.queue_update or transition or pfMap.highlight ~= hlstate or shiftstate ~= hidecluster then
+  -- handle highlights and animations (only process when WorldMap is visible)
+  if WorldMapFrame:IsShown() and (pfMap.queue_update or transition or pfMap.highlight ~= hlstate or shiftstate ~= hidecluster) then
     hlstate, shiftstate, transition = pfMap.highlight, hidecluster, nil
     fps = math.max(0.2, GetFramerate() / 30)
 

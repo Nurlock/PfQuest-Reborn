@@ -719,9 +719,12 @@ function tracker.DoLayout()
   local width = 100
 
   for bid, button in pairs(tracker.buttons) do
-    button:ClearAllPoints()
-    button:SetPoint("TOPRIGHT", tracker, "TOPRIGHT", 0, -height)
-    button:SetPoint("TOPLEFT", tracker, "TOPLEFT", 0, -height)
+    if button.lastY ~= -height then
+      button:ClearAllPoints()
+      button:SetPoint("TOPRIGHT", tracker, "TOPRIGHT", 0, -height)
+      button:SetPoint("TOPLEFT", tracker, "TOPLEFT", 0, -height)
+      button.lastY = -height
+    end
     if not button.empty then
       height = height + button:GetHeight()
 

@@ -306,18 +306,10 @@ pfQuest.route:SetScript("OnUpdate", function()
         end
       end
 
-      -- rearrange coordinates
-      if target then
-        local tmp = {}
-        table.insert(tmp, this.coords[target])
-
-        for id, data in ipairs(this.coords) do
-          if id ~= target then
-            table.insert(tmp, this.coords[id])
-          end
-        end
-
-        this.coords = tmp
+      -- rearrange coordinates in-place (avoids table allocation)
+      if target and target > 1 then
+        local item = table.remove(this.coords, target)
+        table.insert(this.coords, 1, item)
       end
     end
 

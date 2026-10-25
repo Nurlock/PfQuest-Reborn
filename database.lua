@@ -3,14 +3,14 @@ local compat = pfQuestCompat
 
 -- Performance: cache frequently-used globals
 local pairs, ipairs, next = pairs, ipairs, next
-local strfind, strlower, strlen = strfind, strlower, strlen
-local format = string.format
+local strfind, strlower, strlen = strfind or string.find, strlower or string.lower, strlen or string.len
+local format = format or string.format
 local min, max, abs = math.min, math.max, math.abs
 local floor, ceil = floor or math.floor, ceil or math.ceil
 local band = bit.band
 local getn, insert, concat = table.getn, table.insert, table.concat
 local tostring, tonumber, type = tostring, tonumber, type
-local unpack = unpack
+local unpack = unpack or table.unpack
 local GetTime = GetTime
 local UnitLevel, UnitRace, UnitClass = UnitLevel, UnitRace, UnitClass
 local UnitFactionGroup, UnitName, UnitSex = UnitFactionGroup, UnitName, UnitSex
@@ -132,6 +132,8 @@ local function lev(str1, str2, limit)
     return len1
   elseif str1 == str2 then
     return 0
+  elseif limit and math.abs(len1 - len2) >= limit then
+    return limit
   end
 
   -- initialise the base matrix (reuse pre-allocated matrix)
@@ -189,90 +191,6 @@ end
 
 -- Reborn: Pure Vanilla database - expansion overlay loop omitted.
 
--- Reforged: apply server-authoritative quest level overrides (see
--- db/quests-serverlevels335.lua) field-wise onto the already-merged quest data.
--- Runs after the tbc/wotlk overlays are merged and before the expansion patch
--- tables are freed. Unlike patchtable this only sets lvl/min -- it never replaces
--- a quest entry, so the Questie-sourced relations/masks/prereqs are preserved.
-if pfDB["quests"]["serverlevels"] then
-  for id, lv in pairs(pfDB["quests"]["serverlevels"]) do
-    local q = pfDB["quests"]["data"][id]
-    if q then
-      if lv.lvl then q.lvl = lv.lvl end
-      if lv.min then q.min = lv.min end
-    end
-  end
-  pfDB["quests"]["serverlevels"] = nil
-end
-
--- Reforged: restore the holiday/event flag on WotLK quests (see
--- db/quests-eventtags335.lua). The WotLK data was generated from Questie and the
--- conversion dropped pfQuest's ["event"] field, so holiday quests were never
--- hidden by QuestFilter's showfestival check. Reapply it field-wise onto the
--- merged data, then free the overlay.
-if pfDB["quests"]["eventtags"] then
-  for id, ev in pairs(pfDB["quests"]["eventtags"]) do
-    local q = pfDB["quests"]["data"][id]
-    if q then q.event = ev end
-  end
-  pfDB["quests"]["eventtags"] = nil
-end
-
--- Reforged: vanilla quests Blizzard REWORKED for Wrath (see db/wotlkrework335.lua).
--- pfQuest's vanilla quest data was never refreshed against 3.3.5a -- only 5 of
--- the 4435 quests in db/quests.lua are overridden by the -wotlk overlay -- so a
--- quest changed during Wrath still describes the vanilla version (issue #43).
---
--- Applied FIELD-WISE, never through patchtable: replacing a whole quest entry
--- would drop the Questie-sourced relations, race masks and prerequisites that
--- the overlays above just merged in. Runs before PackCoords/PackDropData so the
--- item drop maps written here are compacted with everything else.
-if pfDB["rework335"] then
-  local rw = pfDB["rework335"]
-
-  for id, fix in pairs(rw["quests"] or {}) do
-    local q = pfDB["quests"]["data"][id]
-    if q then
-      -- only the named sub-fields; obj.U/obj.O and every other key survive
-      if fix["obj"] then
-        q["obj"] = q["obj"] or {}
-        for k, v in pairs(fix["obj"]) do q["obj"][k] = v end
-      end
-    end
-  end
-
-  -- The drop map is REPLACED, not merged: these corrections remove sources as
-  -- well as add them. Tough Wolf Meat no longer drops from the diseased wolves,
-  -- and a merge would leave them on the list.
-  for id, fix in pairs(rw["items"] or {}) do
-    local it = pfDB["items"]["data"][id]
-    if not it then
-      it = {}
-      pfDB["items"]["data"][id] = it
-    end
-    for k, v in pairs(fix) do it[k] = v end
-  end
-
-  -- Names: correct enUS outright, and fill any other installed locale that has
-  -- no name for the id at all (a brand new item). A locale that DOES carry the
-  -- old name is left alone -- we have no translation for the new one, and
-  -- inventing an English string for a German client would be worse.
-  local function applynames(db, names)
-    for id, name in pairs(names or {}) do
-      if pfDB[db]["enUS"] then pfDB[db]["enUS"][id] = name end
-      for locale in pairs(pfDB.locales) do
-        if pfDB[db][locale] and not pfDB[db][locale][id] then
-          pfDB[db][locale][id] = name
-        end
-      end
-    end
-  end
-  applynames("items", rw["itemnames"])
-  applynames("units", rw["unitnames"])
-
-  pfDB["rework335"] = nil
-end
-
 -- Reforged: Eastern Plaguelands (zone 139) coordinate correction.
 --
 -- Blizzard rescaled the Eastern Plaguelands world map during Wrath, and
@@ -302,6 +220,8 @@ end
 -- Only ["data"] is walked. patchtable copies entry REFERENCES, so the -tbc and
 -- -wotlk overlay tables hold the same tables that are already in ["data"];
 -- walking them too would correct those entries twice.
+-- Eastern Plaguelands (zone 139) coordinate correction.
+-- Corrected lazily inside coordMeta on access without full-database startup scan.
 local EPL_ZONE = 139
 local EPL_OLD = { 3872.71, 2580.90, -2184.64, 3799.83 }
 local EPL_NEW = { 4031.25, 2687.50, -2287.50, 3704.17 }
@@ -311,183 +231,10 @@ local function correctEPL(tup)
   end
   local wy = EPL_OLD[3] - tup[1] / 100 * EPL_OLD[1]
   local wx = EPL_OLD[4] - tup[2] / 100 * EPL_OLD[2]
-  -- keep pfQuest's own precision: two decimals, as the sw335 correction emits
   tup[1] = floor((EPL_NEW[3] - wy) / EPL_NEW[1] * 10000 + 0.5) / 100
   tup[2] = floor((EPL_NEW[4] - wx) / EPL_NEW[2] * 10000 + 0.5) / 100
 end
 pfDatabase.CorrectEPLCoord = correctEPL
-
--- 31ms over the whole database in a headless measure, which is why this is a
--- plain walk rather than a shipped list of the entries that need it.
-local function correctEPLDatabase(root)
-  for _, db in pairs({ "units", "objects", "areatrigger" }) do
-    local data = root[db] and root[db]["data"]
-    if type(data) == "table" then
-      for _, entry in pairs(data) do
-        if type(entry) == "table" and type(entry["coords"]) == "table" then
-          for _, tup in pairs(entry["coords"]) do
-            if type(tup) == "table" then
-              correctEPL(tup)
-            end
-          end
-        end
-      end
-    end
-  end
-end
-pfDatabase.CorrectEPLDatabase = correctEPLDatabase
-correctEPLDatabase(pfDB)
-
--- Reforged: Outland/Northrend map-tracking data (see db/tracking335.lua).
--- pfQuest's pfDB["meta"] tracking lists are vanilla plus TBC: Northrend had ZERO
--- entries in every one of them, so "Herbs & Flowers", "Mines & Ores", "Chests &
--- Treasures", "Fishing" and "Rare Mobs" all found nothing there (issue #18).
--- Outland was mostly covered with one big hole: every WotLK ore and herb had no
--- object entry at all, and the TBC ores plus several TBC herbs had an object
--- entry with an EMPTY coords table.
---
--- Merged ADDITIVELY rather than through the -tbc/-wotlk overlay mechanism above:
--- patchtable replaces a whole entry, and these entities must keep every field
--- the base data already gives them (quest relations above all). The generator
--- emits coordinates only for (entity, zone) pairs pfQuest has none for, so
--- appending can never duplicate an existing node. Runs before
--- pfDatabase.Reload/PackCoords, which compact these very tables.
-if pfDB["tracking335"] then
-  -- Reforged: Azeroth's gathering coordinates are REBUILT from the server's own
-  -- spawn table rather than appended to (issue #28). pfQuest's vanilla herb, ore
-  -- and chest coordinates come from a different world revision: only 47% of them
-  -- sit on a node this server actually spawns, and the rest are either the right
-  -- object in the wrong spot or an object that is not there at all. So for these
-  -- objects, in these zones, the shipped coordinates are dropped and replaced.
-  --
-  -- This is the one place that REMOVES data, so it is deliberately narrow: only
-  -- the 168 objects on the gathering roster, only in the zones the generator
-  -- lists. Coordinates in any other zone, on any other object, and every unit,
-  -- are left exactly as they are.
-  --
-  -- Quest pins DO depend on some of these objects, which an earlier version of
-  -- this comment got wrong. None of the 168 is a quest objective/start/end
-  -- directly, but a quest reaches them through its required ITEM: obj.I ->
-  -- items[item].O, obj.IR -> itemreq, and items[item].R -> refloot. Resolved
-  -- that way, 132 quests have object pins in the rebuilt zones and 115 end up
-  -- with fewer. The invariant that makes that acceptable, and which
-  -- trackingcheck335.lua enforces, is that NO quest is left with zero object
-  -- pins: the pins that go were positions this server never spawns, so what
-  -- remains is where the objective actually is.
-  local rebuild = pfDB["tracking335"]["rebuild"]
-  if rebuild then
-    local objectdata = pfDB["objects"]["data"]
-    for id, coords in pairs(rebuild["objects"]) do
-      local entry = objectdata[id]
-      if not entry and next(coords) == nil then
-        -- nothing to add and nothing to prune: do not invent an empty entry
-        entry = nil
-      elseif not entry then
-        entry = {}
-        objectdata[id] = entry
-      end
-      if entry then
-      local keep, n = {}, 0
-      for _, coord in pairs(entry["coords"] or {}) do
-        if not rebuild["zones"][coord[3]] then
-          n = n + 1
-          keep[n] = coord
-        end
-      end
-      for _, coord in pairs(coords) do
-        n = n + 1
-        keep[n] = coord
-      end
-      entry["coords"] = keep
-      end
-    end
-  end
-
-  for _, db in pairs({ "objects", "units" }) do
-    local overlay = pfDB["tracking335"][db]
-    local data = pfDB[db]["data"]
-
-    for id, coords in pairs(overlay["coords"]) do
-      local entry = data[id]
-      if not entry then
-        entry = {}
-        data[id] = entry
-      end
-      if not entry["coords"] then
-        entry["coords"] = {}
-      end
-      for _, coord in pairs(coords) do
-        table.insert(entry["coords"], coord)
-      end
-    end
-
-    -- Names for the entities pfQuest has never heard of. English only, so write
-    -- them into every installed locale that lacks the id -- the same
-    -- honest-degrade the enUS expansion overlay already relies on above.
-    for id, name in pairs(overlay["names"]) do
-      for locale in pairs(pfDB.locales) do
-        if pfDB[db][locale] and not pfDB[db][locale][id] then
-          pfDB[db][locale][id] = name
-        end
-      end
-      if pfDB[db]["enUS"] and not pfDB[db]["enUS"][id] then
-        pfDB[db]["enUS"][id] = name
-      end
-    end
-
-    -- Level and rank for the new rare mobs, so the map tooltip reads like every
-    -- other mob. pfQuest stores both as STRINGS and lvl may be a range
-    -- ("71-72"), which is exactly what the generator emits.
-    for id, info in pairs(overlay["info"] or {}) do
-      local entry = data[id]
-      if entry then
-        entry["lvl"] = entry["lvl"] or info[1]
-        entry["rnk"] = entry["rnk"] or info[2]
-      end
-    end
-  end
-
-  -- The tracking lists themselves. Keys already carry pfQuest's sign convention
-  -- (negative for the object tracks, positive for the unit tracks) and the
-  -- values already match pfQuest's own types -- a number for the skill and
-  -- level tracks, the "AH" string for fishing pools, which SearchMetaRelation
-  -- matches with string.find and would throw on a number.
-  for track, entries in pairs(pfDB["tracking335"]["meta"]) do
-    if pfDB["meta"][track] then
-      for id, value in pairs(entries) do
-        pfDB["meta"][track][id] = value
-      end
-    end
-  end
-
-  -- Rare mobs the rare track advertises that this client's server never spawns
-  -- (issue #21). Baron Bloodbane and Duke Ragereaver are the reported pair: they
-  -- have creature templates, so they are in every database, but no spawn row
-  -- anywhere, so the pin sends players to a mob that cannot appear. Checked
-  -- against the RAW creature table, not the event-filtered view the generator
-  -- otherwise uses: Leprithus has no ordinary spawn either but IS spawned during
-  -- a game event, and stays.
-  --
-  -- Only the LIST entry goes. The unit keeps its coordinates, so a quest or a
-  -- search that names the mob still finds it; it just stops drawing itself on
-  -- the "Rare Mobs" overlay.
-  for id in pairs(pfDB["tracking335"]["stale_rares"] or {}) do
-    pfDB["meta"]["rares"][id] = nil
-  end
-
-  -- The banker list, replaced wholesale rather than merged (issue #29). What
-  -- pfQuest ships under "banker" is not a banker list: not one of its 420
-  -- entries carries UNIT_NPC_FLAG_BANKER (0x20000) on this client, and what it
-  -- does contain is barkeeps, innkeepers and general vendors -- which is exactly
-  -- what enabling the track showed. Adding to it would leave all 420 in place,
-  -- so it is dropped and rebuilt from the server's own flag, keeping the ones
-  -- pfQuest can already place on a map.
-  if pfDB["tracking335"]["bankers"] then
-    pfDB["meta"]["banker"] = pfDB["tracking335"]["bankers"]
-  end
-
-  pfDB["tracking335"] = nil
-end
 
 -- detect installed locales
 for key, name in pairs(pfDB.locales) do
@@ -509,28 +256,16 @@ for id, db in pairs(dbs) do
     .. "|cffcccccc]"
 end
 
--- Free unused locale data to reduce memory (~65MB savings)
--- The "loc" reference already points to the correct table, so we can safely
--- nil out all other locale tables and let them be garbage collected
+-- Free unused locale data to reduce memory
 for id, db in pairs(dbs) do
   for locale in pairs(pfDB.locales) do
     if pfDB[db][locale] and pfDB[db][locale] ~= pfDB[db]["loc"] then
       pfDB[db][locale] = nil
     end
   end
-  -- Also free enUS if it's not the active locale (enUS may not be in pfDB.locales)
   if pfDB[db]["enUS"] and pfDB[db]["enUS"] ~= pfDB[db]["loc"] then
     pfDB[db]["enUS"] = nil
   end
-  -- Free expansion patch data (already merged into base tables)
-  pfDB[db]["data-tbc"] = nil
-  pfDB[db]["data-wotlk"] = nil
-  for locale in pairs(pfDB.locales) do
-    pfDB[db][locale .. "-tbc"] = nil
-    pfDB[db][locale .. "-wotlk"] = nil
-  end
-  pfDB[db]["enUS-tbc"] = nil
-  pfDB[db]["enUS-wotlk"] = nil
 end
 
 -- Free expansion meta/minimap tables (already merged)
@@ -748,15 +483,9 @@ if isempty(pfDB["quests"]["loc"]) then
   end)
 end
 
--- Reforged memory: spawn coordinates are the single biggest slice of the loaded DB.
--- Every unit/object stores coords as a list of 4-number tables ({x,y,zone,respawn}),
--- and each of those ~80k+ tuple tables costs a Lua table header + slots -- ~28 MB of
--- units+objects in a headless measure, ~21 MB of it just those coord tables. Pack each
--- entry's coord list into ONE compact string at load ("x,y,z,r;x,y,z,r;...") and drop the
--- tables; decode a string back into tuples lazily -- only for the handful of entries the
--- map/search actually queries -- and cache the decoded table on the entry so repeat reads
--- are free. Units in zones you never visit stay a small string and never explode.
--- Consumers are unchanged: reading entry.coords still yields the {x,y,zone,respawn} list.
+-- Reborn Zero-Overhead Metatable Architecture
+-- All coordinates, drops, and quest relations ship pre-compacted from pfquest-db.
+-- Deserialization occurs lazily on first access and caches itself in-place.
 local coordMeta = {
   __index = function(t, k)
     if k ~= "coords" then return nil end
@@ -769,59 +498,22 @@ local coordMeta = {
           i = i + 1
           tup[i] = tonumber(num)
         end
+        if tup[3] == EPL_ZONE then
+          correctEPL(tup)
+        end
         out[#out + 1] = tup
       end
     end
-    rawset(t, "coords", out) -- cache -> later reads hit the raw key, not __index
+    rawset(t, "coords", out)
     return out
   end,
 }
 
-local function packEntryCoords(entry)
-  if type(entry) ~= "table" then return end
-  local c = rawget(entry, "coords")
-  if type(c) ~= "table" then return end          -- server-custom entry / nothing to pack
-  if rawget(entry, "__c") ~= nil then return end  -- idempotent (Reload may re-run)
-  local parts, n = {}, 0
-  for _, tup in ipairs(c) do
-    if type(tup) == "table" then
-      n = n + 1
-      parts[n] = table.concat(tup, ",")
-    end
-  end
-  entry.coords = nil
-  entry.__c = table.concat(parts, ";") -- "" for a unit with no known spawns
-  setmetatable(entry, coordMeta)
-end
-
--- Pack the coord-bearing databases in place. Runs once after the base+overlay merge is
--- complete; pfQuest_server custom nodes merge later as plain-coord entries, which the
--- consumers read directly (the metatable only fronts packed entries), so mixing is safe.
-function pfDatabase.PackCoords()
-  for _, db in ipairs({ "units", "objects", "areatrigger" }) do
-    local d = pfDB[db] and pfDB[db]["data"]
-    if type(d) == "table" then
-      for _, entry in pairs(d) do
-        packEntryCoords(entry)
-      end
-    end
-  end
-  if collectgarbage then collectgarbage("collect") end
-end
-
--- Reforged memory: the item drop DB is the other big slice -- each item entry holds up to
--- four id->chance maps (U=dropped by units, O=from objects, V=sold by vendors, R=reference
--- loot tables), and refloot mirrors U/O. ~13k small hash tables in a headless measure,
--- ~12 MB of the ~18 MB items+refloot cost. Pack each present submap into ONE string
--- ("id:chance,id:chance") under a __U/__O/__V/__R key and drop the maps; decode back to an
--- {[id]=chance} map lazily on read (only for items the loot/browser code actually queries)
--- and cache it. Absent submaps stay absent, so `if items[id]["U"]` still short-circuits.
-local LOOT_SUBKEYS = { "U", "O", "V", "R" }
 local lootMeta = {
   __index = function(t, k)
     if k ~= "U" and k ~= "O" and k ~= "V" and k ~= "R" then return nil end
     local packed = rawget(t, "__" .. k)
-    if type(packed) ~= "string" then return nil end -- item genuinely has no drops of this type
+    if type(packed) ~= "string" then return nil end
     local m = {}
     if packed ~= "" then
       for pair in string.gmatch(packed, "[^,]+") do
@@ -829,44 +521,46 @@ local lootMeta = {
         if id then m[tonumber(id)] = tonumber(chance) end
       end
     end
-    rawset(t, k, m) -- cache
+    rawset(t, k, m)
     return m
   end,
 }
 
-local function packEntryLoot(entry)
-  if type(entry) ~= "table" then return end
-  local any = false
-  for _, sk in ipairs(LOOT_SUBKEYS) do
-    local mp = rawget(entry, sk)
-    if type(mp) == "table" and rawget(entry, "__" .. sk) == nil then
-      local parts, n = {}, 0
-      for id, chance in pairs(mp) do
-        n = n + 1
-        parts[n] = id .. ":" .. chance
+local questMeta = {
+  __index = function(t, k)
+    if k == "start" or k == "end" or k == "obj" then
+      local raw_key = "__" .. (k == "start" and "s" or (k == "end" and "e" or "o"))
+      local packed = rawget(t, raw_key)
+      if not packed or packed == "" then return nil end
+      local m = {}
+      for entry in string.gmatch(packed, "[^;]+") do
+        local typ, id_list = string.match(entry, "^([^:]+):(.*)$")
+        if typ and id_list then
+          local ids = {}
+          for id in string.gmatch(id_list, "[^,]+") do
+            table.insert(ids, tonumber(id))
+          end
+          m[typ] = ids
+        end
       end
-      entry[sk] = nil
-      entry["__" .. sk] = table.concat(parts, ",")
-      any = true
-    end
-  end
-  if any then setmetatable(entry, lootMeta) end
-end
-
--- Pack item + refloot drop maps in place, once after the merge (same timing as PackCoords).
-function pfDatabase.PackDropData()
-  for _, db in ipairs({ "items", "refloot" }) do
-    local d = pfDB[db] and pfDB[db]["data"]
-    if type(d) == "table" then
-      for _, entry in pairs(d) do
-        packEntryLoot(entry)
+      rawset(t, k, m)
+      return m
+    elseif k == "pre" or k == "close" then
+      local raw_key = "__" .. (k == "pre" and "p" or "c")
+      local packed = rawget(t, raw_key)
+      if not packed or packed == "" then return nil end
+      local ids = {}
+      for id in string.gmatch(packed, "[^,]+") do
+        table.insert(ids, tonumber(id))
       end
+      rawset(t, k, ids)
+      return ids
     end
-  end
-  if collectgarbage then collectgarbage("collect") end
-end
+    return nil
+  end,
+}
 
--- add database shortcuts
+-- Add database shortcuts and attach lazy metatables
 local items, units, objects, quests, zones, refloot, itemreq, areatrigger, professions, qrel
 pfDatabase.Reload = function()
   items = pfDB["items"]["data"]
@@ -874,34 +568,53 @@ pfDatabase.Reload = function()
   objects = pfDB["objects"]["data"]
   quests = pfDB["quests"]["data"]
   zones = pfDB["zones"]["data"]
-  refloot = pfDB["refloot"]["data"]
-  itemreq = pfDB["quests-itemreq"]["data"]
-  areatrigger = pfDB["areatrigger"]["data"]
+  refloot = pfDB["refloot"] and pfDB["refloot"]["data"] or {}
+  itemreq = pfDB["quests-itemreq"] and pfDB["quests-itemreq"]["data"] or {}
+  areatrigger = pfDB["areatrigger"] and pfDB["areatrigger"]["data"] or {}
   professions = pfDB["professions"]["loc"]
-  qrel = pfDB["quests"]["relations"] or {} -- WotLK quest relations overlay (may be absent)
+  qrel = pfDB["quests"]["relations"] or {}
+
+  -- Bind metatables (sub-millisecond pointer binding, zero table allocations)
+  for _, db in ipairs({ "units", "objects", "areatrigger" }) do
+    local d = pfDB[db] and pfDB[db]["data"]
+    if type(d) == "table" then
+      for _, entry in pairs(d) do
+        if rawget(entry, "__c") ~= nil then
+          setmetatable(entry, coordMeta)
+        end
+      end
+    end
+  end
+
+  for _, db in ipairs({ "items", "refloot" }) do
+    local d = pfDB[db] and pfDB[db]["data"]
+    if type(d) == "table" then
+      for _, entry in pairs(d) do
+        setmetatable(entry, lootMeta)
+      end
+    end
+  end
+
+  if type(quests) == "table" then
+    for _, entry in pairs(quests) do
+      setmetatable(entry, questMeta)
+    end
+  end
 end
 
 pfDatabase.Reload()
-pfDatabase.PackCoords()   -- compact the coord tables now that the DB is fully merged
-pfDatabase.PackDropData() -- compact the item/refloot drop maps
+function pfDatabase.PackCoords() end
+function pfDatabase.PackDropData() end
 
--- Inverted name index: maps name → {id, id, ...} for O(1) exact-match lookups.
--- Built once after locale is known. Used by GetIDByName to skip full-table scans
--- for exact matches (the hot path in SearchQuestID). Partial-match calls (browser,
--- slash commands) still use the full scan since they can't use this index.
+-- Inverted quest title index: maps title → {id, id, ...} for instant O(1) questlog lookups.
 pfDatabase.nameIndex = {}
 pfDatabase.lastQuestGiversSet = {}
 
--- Pre-computed set of quest IDs that will never pass QuestFilter for this
--- character, regardless of level, questlog, or config changes.
--- Populated by BuildStaticRejectSet, called from PLAYER_ENTERING_WORLD
--- and from the locale-detection OnUpdate (covers locale swaps).
--- Covers: wrong race, wrong class, missing loc name.
+-- Pre-computed set of quest IDs that will never pass QuestFilter for this character.
 pfDatabase.staticRejectSet = {}
 
 function pfDatabase:BuildNameIndex()
   local idx = self.nameIndex
-  -- clear existing index in-place
   for db in pairs(idx) do
     for name in pairs(idx[db]) do
       idx[db][name] = nil
@@ -909,19 +622,17 @@ function pfDatabase:BuildNameIndex()
     idx[db] = nil
   end
 
-  for _, db in pairs({ "units", "objects", "items" }) do
-    idx[db] = {}
-    for id, loc in pairs(pfDB[db]["loc"]) do
-      if loc then
-        if not idx[db][loc] then
-          idx[db][loc] = {}
-        end
-        insert(idx[db][loc], id)
+  idx["quests"] = {}
+  for id, loc in pairs(pfDB["quests"]["loc"]) do
+    local title = loc and loc.T
+    if title then
+      if not idx["quests"][title] then
+        idx["quests"][title] = {}
       end
+      insert(idx["quests"][title], id)
     end
   end
 
-  -- locale tables may have changed; force SearchQuests to re-add all nodes
   for id in pairs(self.lastQuestGiversSet) do
     self.lastQuestGiversSet[id] = nil
   end
@@ -1303,29 +1014,23 @@ end
 -- Scans localization tables for matching IDs
 -- Returns table with all IDs
 function pfDatabase:GetIDByName(name, db, partial, server)
-  if not pfDB[db] then
+  if not pfDB[db] or not pfDB[db]["loc"] then
     return nil
   end
   local ret = {}
 
-  -- Fast path: O(1) index lookup for exact case-sensitive matches with no
-  -- server filter. This is the hot path called from SearchQuestID for monster
-  -- and item objective lookups. Quests are excluded because their loc is a
-  -- table ({T=, O=, D=}) and are not indexed.
-  if not partial and not server and db ~= "quests" then
-    local ids = pfDatabase.nameIndex[db] and pfDatabase.nameIndex[db][name]
-    if ids then
-      for _, id in pairs(ids) do
-        ret[id] = pfDB[db]["loc"][id]
-      end
+  -- Fast path: O(1) index lookup for quests
+  if not partial and not server and self.nameIndex[db] and self.nameIndex[db][name] then
+    for _, id in pairs(self.nameIndex[db][name]) do
+      ret[id] = db == "quests" and (pfDB[db]["loc"][id] and pfDB[db]["loc"][id].T) or pfDB[db]["loc"][id]
     end
     return ret
   end
 
-  -- Slow path: full scan for partial matches (browser/slash commands) and quests
+  -- On-demand scan for manual /db queries and partial matches
   for id, loc in pairs(pfDB[db]["loc"]) do
     if db == "quests" then
-      loc = loc["T"]
+      loc = loc and loc["T"]
     end
 
     local custom = server and pfQuest_server[db] and pfQuest_server[db][id] or not server
@@ -2017,28 +1722,43 @@ function pfDatabase:SearchQuestID(id, meta, maps)
       end
     end
 
-    if objectives then
-
+    if objectives and quests[id] and quests[id]["obj"] then
+      local q_obj = quests[id]["obj"]
       for i = 1, objectives, 1 do
         local text, type, done = GetQuestLogLeaderBoard(i, meta["qlogid"])
 
         -- spawn data
         if type == "monster" then
-          local i, j, monsterName, objNum, objNeeded = strfind(text, pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
-          for id in pairs(pfDatabase:GetIDByName(monsterName, "units")) do
-            parse_obj["U"][id] = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
-          end
-
-          for id in pairs(pfDatabase:GetIDByName(monsterName, "objects")) do
-            parse_obj["O"][id] = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
+          local _, _, monsterName, objNum, objNeeded = strfind(text or "", pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
+          if monsterName then
+            local status = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
+            if q_obj["U"] then
+              for _, uid in ipairs(q_obj["U"]) do
+                if pfDB.units.loc[uid] == monsterName then
+                  parse_obj["U"][uid] = status
+                end
+              end
+            end
+            if q_obj["O"] then
+              for _, oid in ipairs(q_obj["O"]) do
+                if pfDB.objects.loc[oid] == monsterName then
+                  parse_obj["O"][oid] = status
+                end
+              end
+            end
           end
         end
 
         -- item data
         if type == "item" then
-          local i, j, itemName, objNum, objNeeded = strfind(text, pfUI.api.SanitizePattern(QUEST_OBJECTS_FOUND))
-          for id in pairs(pfDatabase:GetIDByName(itemName, "items")) do
-            parse_obj["I"][id] = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
+          local _, _, itemName, objNum, objNeeded = strfind(text or "", pfUI.api.SanitizePattern(QUEST_OBJECTS_FOUND))
+          if itemName and q_obj["I"] then
+            local status = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
+            for _, iid in ipairs(q_obj["I"]) do
+              if pfDB.items.loc[iid] == itemName then
+                parse_obj["I"][iid] = status
+              end
+            end
           end
         end
       end
@@ -2234,6 +1954,7 @@ function pfDatabase:QuestFilter(id, plevel, pclass, prace)
     for _, prequest in pairs(quests[id]["pre"]) do
       if pfQuest_history[prequest] then
         one_complete = true
+        break
       end
     end
 
@@ -2562,13 +2283,8 @@ function pfDatabase:GetQuestIDs(qid)
   local best = 0
   local results = {}
 
-  local tcount = 0
-  -- check if multiple quests share the same name
-  for id, data in pairs(pfDB["quests"]["loc"]) do
-    if quests[id] and data.T == title then
-      tcount = tcount + 1
-    end
-  end
+  local candidate_ids = pfDatabase.nameIndex["quests"] and pfDatabase.nameIndex["quests"][title]
+  local tcount = candidate_ids and #candidate_ids or 0
 
   -- no title was found, run levenshtein on titles
   if tcount == 0 and title then
@@ -2576,10 +2292,12 @@ function pfDatabase:GetQuestIDs(qid)
     local tscore, tbest, ttitle = nil, math.min(tlen / 2, 5), nil
     for id, data in pairs(pfDB["quests"]["loc"]) do
       if quests[id] and data.T then
-        tscore = lev(data.T, title, tbest)
-        if tscore < tbest then
-          tbest = tscore
-          ttitle = data.T
+        if math.abs(string.len(data.T) - tlen) < tbest then
+          tscore = lev(data.T, title, tbest)
+          if tscore < tbest then
+            tbest = tscore
+            ttitle = data.T
+          end
         end
       end
     end
@@ -2597,47 +2315,56 @@ function pfDatabase:GetQuestIDs(qid)
     else
       -- set title to best result
       title = ttitle
+      candidate_ids = pfDatabase.nameIndex["quests"] and pfDatabase.nameIndex["quests"][title]
+      tcount = candidate_ids and #candidate_ids or 0
     end
   end
 
-  for id, data in pairs(pfDB["quests"]["loc"]) do
-    local score = 0
+  if candidate_ids then
+    for _, id in ipairs(candidate_ids) do
+      local data = pfDB["quests"]["loc"][id]
+      local score = 0
 
-    if quests[id] and data.T and data.T == title then
-      -- low score for same name
-      score = 1
+      if quests[id] and data and data.T == title then
+        -- low score for same name
+        score = 1
 
-      -- check level and set score
-      if quests[id]["lvl"] == level then
-        score = score + 8
-      end
+        -- check level and set score
+        if quests[id]["lvl"] == level then
+          score = score + 8
+        end
 
-      -- check race and set score
-      if quests[id]["race"] and (bit.band(quests[id]["race"], prace) == prace) then
-        score = score + 8
-      end
+        -- check race and set score
+        if quests[id]["race"] and (bit.band(quests[id]["race"], prace) == prace) then
+          score = score + 8
+        end
 
-      -- check class and set score
-      if quests[id]["class"] and (bit.band(quests[id]["class"], pclass) == pclass) then
-        score = score + 8
-      end
+        -- check class and set score
+        if quests[id]["class"] and (bit.band(quests[id]["class"], pclass) == pclass) then
+          score = score + 8
+        end
 
-      -- if multiple quests share the same name, use levenshtein algorithm,
-      -- to compare quest text distances in order to estimate the best quest id
-      if tcount > 1 then
-        -- check objective and calculate score
-        score = score + max(24 - lev(pfDatabase:FormatQuestText(pfDB.quests.loc[id]["O"]), objective, 24), 0)
+        -- if multiple quests share the same name, use levenshtein algorithm,
+        -- to compare quest text distances in order to estimate the best quest id
+        if tcount > 1 then
+          -- check objective and calculate score
+          if data["O"] and objective then
+            score = score + max(24 - lev(pfDatabase:FormatQuestText(data["O"]), objective, 24), 0)
+          end
 
-        -- check description and calculate score
-        score = score + max(24 - lev(pfDatabase:FormatQuestText(pfDB.quests.loc[id]["D"]), text, 24), 0)
-      end
+          -- check description and calculate score
+          if data["D"] and text then
+            score = score + max(24 - lev(pfDatabase:FormatQuestText(data["D"]), text, 24), 0)
+          end
+        end
 
-      if score > best then
-        best = score
-      end
-      results[score] = results[score] or {}
-      if score > 0 then
-        table.insert(results[score], id)
+        if score > best then
+          best = score
+        end
+        results[score] = results[score] or {}
+        if score > 0 then
+          table.insert(results[score], id)
+        end
       end
     end
   end
