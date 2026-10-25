@@ -1,0 +1,163 @@
+name: Release
+
+# SINGLE RELEASE AUTHORITY.
+#
+# A release is cut automatically on every push to `main`. The version is
+# computed by CI -- highest existing vMAJOR.MINOR.PATCH tag + 1 patch (first
+# release: v1.0.0) -- and stamped into the toc at package time, so NO human or
+# agent ever picks the number. A `concurrency` group serializes runs so rapid
+# back-to-back pushes still get distinct, sequential versions.
+# (Legacy v8.1.0-reforged.N tags do not match the version pattern and are
+# ignored by the counter.)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version e.g. v1.2.0 (blank = auto-increment)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Parse check (Lua 5.1, the 3.3.5a client's Lua)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends lua5.1
+          find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac5.1 -p
+
+      - name: Resolve version (CI-computed, not human-picked)
+        id: ver
+        run: |
+          OVERRIDE="${{ github.event.inputs.version }}"
+          if [ -n "$OVERRIDE" ]; then
+            TAG="$OVERRIDE"
+          else
+            git fetch --tags --force --quiet || true
+            latest="$(git tag -l 'v*' \
+              | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p' \
+              | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+            if [ -z "$latest" ]; then
+              TAG="v1.0.0"
+            else
+              major="${latest%%.*}"; rest="${latest#*.}"
+              minor="${rest%%.*}"; patch="${rest##*.}"
+              TAG="v${major}.${minor}.$((patch + 1))"
+            fi
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: $TAG"
+
+      - name: Abort if tag already exists
+        run: |
+          if git rev-parse -q --verify "refs/tags/${{ steps.ver.outputs.tag }}" >/dev/null; then
+            echo "::error::Tag ${{ steps.ver.outputs.tag }} already exists -- aborting."
+            exit 1
+          fi
+
+      - name: Stage addon as pfQuest-Reborn/
+        run: |
+          mkdir -p dist/pfQuest-Reborn
+          # Export only tracked files (auto-excludes .git and untracked).
+          git archive HEAD | tar -x -C dist/pfQuest-Reborn
+          # Drop dev-only files from the shipped addon.
+          rm -rf dist/pfQuest-Reborn/.github dist/pfQuest-Reborn/tools
+          rm -f  dist/pfQuest-Reborn/.gitignore
+          # Stamp the version into every toc so addon managers show it.
+          sed -i "s/^## Version:.*/## Version: ${{ steps.ver.outputs.version }}/" dist/pfQuest-Reborn/*.toc
+
+      - name: Zip
+        run: |
+          cd dist
+          zip -r -q "pfQuest-Reborn-${{ steps.ver.outputs.tag }}.zip" pfQuest-Reborn
+          ls -la
+
+      - name: Build release notes
+        id: notes
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          PREV="$(git describe --tags --abbrev=0 --exclude "$TAG" HEAD 2>/dev/null || true)"
+          {
+            echo "notes<<__NOTES_EOF__"
+            if [ -n "$PREV" ]; then
+              echo "## Changes since $PREV"
+              echo
+              # One bullet per commit. A commit may carry one or more
+              # "Changelog: ..." lines, which are what users actually read
+              # in the release; a commit with none falls back to its subject,
+              # and "Changelog: skip" leaves the commit out entirely. This
+              # keeps commit subjects free to stay technical while the release
+              # notes stay written for players.
+              #
+              # The whole commit body is scanned rather than git's trailer
+              # parser: git only reads the LAST paragraph as trailers, so a
+              # Changelog line sitting above a Co-Authored-By block was
+              # silently ignored (that is how v1.0.52 shipped its subject
+              # despite carrying "Changelog: skip"). An indented continuation
+              # line is folded onto the bullet it belongs to.
+              AWKPROG='
+                /^Changelog:[[:space:]]*/ {
+                  line = $0
+                  sub(/^Changelog:[[:space:]]*/, "", line)
+                  if (buf != "") print buf
+                  buf = line
+                  inb = 1
+                  next
+                }
+                inb && /^[[:space:]]+[^[:space:]]/ {
+                  cont = $0
+                  sub(/^[[:space:]]+/, "", cont)
+                  buf = buf " " cont
+                  next
+                }
+                { if (buf != "") { print buf; buf = "" } inb = 0 }
+                END { if (buf != "") print buf }
+              '
+              git log --no-merges --format='%H' "$PREV"..HEAD > /tmp/_shas
+              : > /tmp/_bullets
+              while read -r sha; do
+                git show -s --format='%B' "$sha" \
+                  | awk "$AWKPROG" \
+                  | sed '/^[[:space:]]*$/d' > /tmp/_tr
+                if [ -s /tmp/_tr ]; then
+                  grep -v '^skip$' /tmp/_tr | sed 's/^/- /' >> /tmp/_bullets || true
+                else
+                  git show -s --format='- %s' "$sha" >> /tmp/_bullets
+                fi
+              done < /tmp/_shas
+              if [ -s /tmp/_bullets ]; then
+                cat /tmp/_bullets
+              else
+                # Every commit in the range was skipped, so there is nothing a
+                # player would notice. Say that rather than ship a blank body.
+                echo "- Maintenance only. No player-facing changes."
+              fi
+            else
+              echo "See CHANGES-REFORGED.md for the full history."
+            fi
+            echo "__NOTES_EOF__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: pfQuest Reforged ${{ steps.ver.outputs.tag }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: dist/pfQuest-Reborn-${{ steps.ver.outputs.tag }}.zip

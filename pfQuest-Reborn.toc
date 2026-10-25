@@ -1,0 +1,14 @@
+## Interface: 30300
+## Title: |cff33ffccpf|cffffffffQuest|r |cFF888888[Reborn]|r
+## Author: Shagu, txtsd, Nurlock
+## Notes: A Questhelper and Database for Vanilla WoW (3.3.5a client) with Questie group quest tracking comms -- Reborn edition
+## Notes-ruRU: Облегченный помощник заданий и база данных
+## Version: 1.0.0
+## OptionalDeps: pfUI-wotlk, GW2_UI
+## SavedVariables: pfQuest_questcache
+## SavedVariablesPerCharacter: pfQuest_config, pfBrowser_fav, pfQuest_history, pfQuest_colors, pfQuest_server, pfQuest_track
+
+init\data.xml
+init\enUS.xml
+
+init\addon.xml
