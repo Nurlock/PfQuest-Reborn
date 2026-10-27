@@ -2469,7 +2469,6 @@ comms:SetScript("OnEvent", function()
   elseif event == "PLAYER_ENTERING_WORLD" then
     wasInGroup = comms:IsInGroup()
     if wasInGroup and comms:IsEnabled() then
-      comms:RequestFullQuestList()
       if pfQuest.questlog and next(pfQuest.questlog) then
         comms:UpdateLocalPlayerQuests()
         comms:BroadcastFullQuestList()
