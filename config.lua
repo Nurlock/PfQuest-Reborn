@@ -154,6 +154,12 @@ pfQuest_defconfig = {
   { text = L["Show Grey Quality Items"], default = "1", type = "checkbox", config = "epochLootPanelShowGrey" },
   { text = L["Show White Quality Items"], default = "1", type = "checkbox", config = "epochLootPanelShowWhite" },
 
+  { text = L["Nameplates"], default = nil, type = "header" },
+  { text = L["Show Quest Icons on Nameplates"], default = "1", type = "checkbox", config = "epochnameplatesEnabled" },
+  { text = L["Nameplate Icon Scale"], default = "1.0", type = "slider", config = "nameplateScale", min = 0.5, max = 2.0, step = 0.1, parent = "epochnameplatesEnabled" },
+  { text = L["Nameplate Icon X Position"], default = "-25", type = "slider", config = "nameplateX", min = -100, max = 100, step = 1, parent = "epochnameplatesEnabled" },
+  { text = L["Nameplate Icon Y Position"], default = "-5", type = "slider", config = "nameplateY", min = -100, max = 100, step = 1, parent = "epochnameplatesEnabled" },
+
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
   { text = L["Reset Quest History"], default = "1", type = "button", func = reset.history },
