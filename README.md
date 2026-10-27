@@ -4,7 +4,7 @@
 
 Accept a quest and the relevant NPCs, monsters, and objects are automatically pinned on your world map and minimap, with a smooth navigation arrow guiding you to the nearest objective. Open the database browser (`/db`) to look up any unit, item, object, or quest.
 
-Built on [pfQuest](https://github.com/shagu/pfQuest) (Shagu, GPLv3) and modernized with Reforged UI enhancements, native Questie party comms, server completed-quest sync, and a high-performance lazy-loading architecture.
+Built on [pfQuest](https://github.com/shagu/pfQuest) (Shagu, GPLv3), incorporating modernization and UX enhancements from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) (stevemcqueenz), Project Epoch compatibility and tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch) (Bennylavaa), and native bidirectional Questie party synchronization.
 
 ---
 
@@ -105,6 +105,17 @@ The suite validates:
 - **Performance & memory guards**: Safe Levenshtein cache ring buffers, frame level clamping ($\le 128$), and broadcast echo guards.
 - **Config UI dependencies**: Hierarchical disabling, graying-out, and interaction locking.
 - **Setup wizard lifecycle**: First-run detection, `/reload` suppression, and server query execution.
+
+---
+
+## Credits & Citations
+
+`pfQuest-Reborn` is built upon the dedicated work of the World of Warcraft addon development community:
+
+- **[pfQuest](https://github.com/shagu/pfQuest)** by **Shagu** — The original, highly efficient quest helper and in-game database for legacy World of Warcraft clients (GPLv3).
+- **[pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged)** by **stevemcqueenz** — Modernized user experience, unified theme system (`theme.lua`), route calculation optimizations, tracker progress bars, and UX refinements.
+- **[pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch)** by **Bennylavaa** — Project Epoch database adaptation, continent map pin scaling, and database export tooling.
+- **[Questie](https://github.com/Questie/Questie)** by the Questie Team — Group communication protocols (`questie` and `QuestieV1`) enabling seamless cross-addon party quest objective tracking.
 
 ---
 
