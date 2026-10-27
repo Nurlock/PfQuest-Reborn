@@ -1,46 +1,40 @@
 # pfQuest Reborn
 
-**A lightweight quest helper, navigation arrow, and database browser for WoW 3.3.5a with Questie party synchronization, high-performance lazy metatables, and standalone all-in-one architecture.**
+A quest helper, navigation arrow, and database browser for WoW 3.3.5a with Questie party synchronization, packaged as a standalone addon.
 
-Accept a quest and the relevant NPCs, monsters, and objects are automatically pinned on your world map and minimap, with a smooth navigation arrow guiding you to the nearest objective. Open the database browser (`/db`) to look up any unit, item, object, or quest.
+Accept a quest and related NPCs, monsters, and objects appear on your map and minimap, with a navigation arrow pointing to the nearest objective. A database browser (`/db`) is included to look up units, items, objects, and quests.
 
-Built on [pfQuest](https://github.com/shagu/pfQuest) (Shagu, GPLv3), incorporating modernization and UX enhancements from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) (stevemcqueenz), Project Epoch compatibility and tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch) (Bennylavaa), and native bidirectional Questie party synchronization.
+Built on [pfQuest](https://github.com/shagu/pfQuest) (Shagu, GPLv3), with UI refinements from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) (stevemcqueenz), Project Epoch compatibility and tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch) (Bennylavaa), and Questie party synchronization.
 
 ---
 
-## Key Features
+## Features
 
-- **Standalone All-in-One Addon**:
-  - `pfQuest-Reborn` runs as a single, self-contained addon without requiring external dependencies or secondary addons.
-  - Ships with high-performance embedded database tables in `db/` (pre-bundled with Project Epoch content).
-  - Simple flavor swapping for different game expansions (Project Epoch, Vanilla 1.12, TBC 2.4.3, WotLK 3.3.5a).
+- **Standalone Package**:
+  - Runs as a single addon without requiring separate data modules.
+  - Includes embedded database tables (bundled with Project Epoch data by default).
+  - Database flavor can be swapped for other expansions (Project Epoch, Vanilla 1.12, TBC 2.4.3, WotLK 3.3.5a).
 
-- **First-Run Setup Wizard & Completed Quest Sync**:
-  - Streamlined setup wizard on first launch to configure preferred marker style (*Simple Markers*, *Combined*, or *Spawn Points*) and navigation arrow.
-  - Integrated **`/db query`** checkbox to instantly query the server for your character's already completed quests (`QueryQuestsCompleted`), hiding finished quests from your map.
-  - Clean dismissal and automatic state preservation: once configured or dismissed, the wizard never pops up again on `/reload` or re-logins.
+- **First-Run Setup & Completed Quest Sync**:
+  - A brief setup popup on first login to select marker style (*Simple Markers*, *Combined*, or *Spawn Points*) and arrow preferences.
+  - Optional **`/db query`** option to query the server for already completed quests (`QueryQuestsCompleted`) so they don't show on your map.
+  - Saves your choices and stays closed on subsequent logins and reloads.
 
-- **Questie Group Quest Tracking & Comms**:
-  - Full bidirectional communication with party members running **Questie** (`questie` and `QuestieV1` comms protocols).
-  - Displays party members' quest objectives and progress directly on monster, object, and item tooltips.
-  - Synchronizes quest objective states and visibility across your group in real-time.
-  - Optional party quest completion announcements.
+- **Questie Party Synchronization**:
+  - Shares quest progress with group members running **Questie** (`questie` and `QuestieV1` protocols).
+  - Shows party members' objective counts and completion status on monster, object, and turn-in tooltips.
+  - Synchronizes objective updates and quest watch visibility within your party.
+  - Optional party chat completion announcements.
 
-- **Hierarchical Configuration & Dynamic Gray-Out**:
-  - Clean tabbed settings window with category navigation and scroll panels (`/pfquest` or `/pfq`).
-  - True parent-child dependency system: disabling a master switch (such as *Experimental Features* or *Show Route Between Objects*) visually grays out and locks all child options.
-  - Visual indentations reflecting settings hierarchy.
+- **Resource Efficiency**:
+  - Lazy-loaded database tables to reduce initial load time and memory usage.
+  - Batched map updates and cached lookups to avoid frame stutter during party play.
 
-- **High-Performance Lazy Metatables**:
-  - Coordinates, drops, and quest relationships deserialized lazily on first access.
-  - Sub-second addon load time (~0.2s, 25x faster than legacy pfQuest) and low memory footprint (~24 MB).
-  - Pre-indexed quest lookups and cached route math eliminate frame stutter.
-
-- **Modernized Interface & Theme Engine**:
-  - Flat dark theme with signature teal accent.
-  - Automatic theme detection: seamlessly adopts parchment gold and dark styling when GW2 UI is installed, and integrates natively with pfUI.
-  - Tracker progress bars and custom map/minimap node sliders.
-  - Smoothly rotating navigation arrow with in-place angle and distance calculations.
+- **Interface Refinements**:
+  - Flat dark theme with teal accents, based on pfQuest-Reforged.
+  - Tracker progress bars under quest titles.
+  - Basic theme adaptation when GW2 UI or pfUI is installed.
+  - Directional navigation arrow pointing to active objectives.
 
 ---
 
@@ -88,34 +82,27 @@ pfquest-db export-pfrb --db ref/wotlk.db   --dest /path/to/Interface/AddOns/pfQu
 
 ---
 
-## Testing & Quality Assurance
+## Tests
 
-`pfQuest-Reborn` includes an automated standalone regression test suite running under standard Lua 5.1 without requiring the WoW client:
+`pfQuest-Reborn` includes a standalone test suite runnable under Lua 5.1 without requiring the WoW client:
 
 ```bash
 cd /path/to/pfQuest-Reborn
 lua5.1 tests/run_all_tests.lua
 ```
 
-The suite validates:
-- **Questgiver lifecycle**: Quest acceptance, node deletion, ender spawning, and duplicate suppression.
-- **Objective parsing**: Kill count, multi-word objective names, non-slain verbs (*healed*, *collected*, *dispelled*), and turn-in checks.
-- **Metadata isolation**: Preventing shared table mutations during recursive quest searches.
-- **Node cache & fallback deletion**: Unified coordinate pruning on quest completion.
-- **Performance & memory guards**: Safe Levenshtein cache ring buffers, frame level clamping ($\le 128$), and broadcast echo guards.
-- **Config UI dependencies**: Hierarchical disabling, graying-out, and interaction locking.
-- **Setup wizard lifecycle**: First-run detection, `/reload` suppression, and server query execution.
+Tests cover questgiver lifecycle, objective parsing, metadata isolation, node cleanup, party synchronization, and setup popup states.
 
 ---
 
 ## Credits & Citations
 
-`pfQuest-Reborn` is built upon the dedicated work of the World of Warcraft addon development community:
+`pfQuest-Reborn` builds upon the work of the World of Warcraft addon development community:
 
-- **[pfQuest](https://github.com/shagu/pfQuest)** by **Shagu** — The original, highly efficient quest helper and in-game database for legacy World of Warcraft clients (GPLv3).
+- **[pfQuest](https://github.com/shagu/pfQuest)** by **Shagu** — The original quest helper and in-game database for legacy World of Warcraft clients (GPLv3).
 - **[pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged)** by **stevemcqueenz** — Modernized user experience, unified theme system (`theme.lua`), route calculation optimizations, tracker progress bars, and UX refinements.
 - **[pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch)** by **Bennylavaa** — Project Epoch database adaptation, continent map pin scaling, and database export tooling.
-- **[Questie](https://github.com/Questie/Questie)** by the Questie Team — Group communication protocols (`questie` and `QuestieV1`) enabling seamless cross-addon party quest objective tracking.
+- **[Questie](https://github.com/Questie/Questie)** by the Questie Team — Group communication protocols (`questie` and `QuestieV1`) enabling cross-addon party quest objective tracking.
 
 ---
 
