@@ -2199,7 +2199,6 @@ function comms:AddPartyTooltipLines(questTitle, tooltip, meta)
   if not self:IsInGroup() then
     return
   end
-  EnsureObjectiveLookups()
   tooltip = tooltip or GameTooltip
   local pfDB = _G.pfDB
   local localPlayer = UnitName("player")
@@ -2321,7 +2320,6 @@ function comms:ShowWorldTooltip(name, tooltip)
     return
   end
   if not name or name == "__NONE__" then return end
-  EnsureObjectiveLookups()
   tooltip = tooltip or GameTooltip
 
   if tooltip._pfQuestieTooltipName == name then
@@ -2332,6 +2330,7 @@ function comms:ShowWorldTooltip(name, tooltip)
   if myName and (not pfQuest.partyQuests or not pfQuest.partyQuests[myName]) then
     self:UpdateLocalPlayerQuests()
   end
+  EnsureObjectiveLookups()
 
   local entries = {}
   local seen = {}
@@ -2379,43 +2378,41 @@ function comms:ShowWorldTooltip(name, tooltip)
   local shownEntries = {}
   local anyAdded = false
   for _, entry in ipairs(entries) do
-    if not alreadyInTooltip[entry.questTitle] then
-      if not shownQuests[entry.questTitle] then
-        shownQuests[entry.questTitle] = true
-        local symbol = entry.isEnder and "|cff555555[|cffffcc00?|cff555555]|r " or "|cff555555[|cff33ffcc!|cff555555]|r "
-        tooltip:AddLine(symbol .. entry.questTitle, 1, 1, 0.7)
+    if not shownQuests[entry.questTitle] and not alreadyInTooltip[entry.questTitle] then
+      shownQuests[entry.questTitle] = true
+      local symbol = entry.isEnder and "|cff555555[|cffffcc00?|cff555555]|r " or "|cff555555[|cff33ffcc!|cff555555]|r "
+      tooltip:AddLine(symbol .. entry.questTitle, 1, 1, 0.7)
+      anyAdded = true
+    end
+    local pColor = self:GetPlayerColor(entry.playerName)
+    if entry.isEnder then
+      local isComplete = entry.finished or entry.isComplete or ((tonumber(entry.fulfilled) or 0) >= (tonumber(entry.required) or 1))
+      local statusText = isComplete
+        and (" |cff00ff00(" .. (pfQuest_Loc["Ready for turn-in"] or "Ready for turn-in") .. ")|r")
+        or (" |cffff5555(" .. (pfQuest_Loc["Incomplete"] or "Incomplete") .. ")|r")
+      local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":ENDER"
+      if not shownEntries[entryKey] then
+        shownEntries[entryKey] = true
+        tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r:" .. statusText, 0.8, 0.8, 0.8)
         anyAdded = true
       end
-      local pColor = self:GetPlayerColor(entry.playerName)
-      if entry.isEnder then
-        local isComplete = entry.finished or entry.isComplete or ((tonumber(entry.fulfilled) or 0) >= (tonumber(entry.required) or 1))
-        local statusText = isComplete
-          and (" |cff00ff00(" .. (pfQuest_Loc["Ready for turn-in"] or "Ready for turn-in") .. ")|r")
-          or (" |cffff5555(" .. (pfQuest_Loc["Incomplete"] or "Incomplete") .. ")|r")
-        local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":ENDER"
-        if not shownEntries[entryKey] then
-          shownEntries[entryKey] = true
-          tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r:" .. statusText, 0.8, 0.8, 0.8)
-          anyAdded = true
-        end
-      else
-        local cur = tonumber(entry.fulfilled) or 0
-        local req = tonumber(entry.required) or 1
-        local isFin = entry.finished or (cur >= req)
-        if isFin and cur < req then
-          cur = req
-        end
-        local status = isFin and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
-        local objDesc = ""
-        if entry.text and entry.text ~= "" and entry.text ~= name then
-          objDesc = " (" .. entry.text .. ")"
-        end
-        local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":" .. objDesc
-        if not shownEntries[entryKey] then
-          shownEntries[entryKey] = true
-          tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r" .. objDesc .. ": " .. cur .. "/" .. req .. status, 0.8, 0.8, 0.8)
-          anyAdded = true
-        end
+    else
+      local cur = tonumber(entry.fulfilled) or 0
+      local req = tonumber(entry.required) or 1
+      local isFin = entry.finished or (cur >= req)
+      if isFin and cur < req then
+        cur = req
+      end
+      local status = isFin and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
+      local objDesc = ""
+      if entry.text and entry.text ~= "" and entry.text ~= name then
+        objDesc = " (" .. entry.text .. ")"
+      end
+      local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":" .. objDesc
+      if not shownEntries[entryKey] then
+        shownEntries[entryKey] = true
+        tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r" .. objDesc .. ": " .. cur .. "/" .. req .. status, 0.8, 0.8, 0.8)
+        anyAdded = true
       end
     end
   end
