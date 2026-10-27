@@ -125,4 +125,34 @@ assert(f_loot, "img/loot.blp must exist")
 f_loot:close()
 print("  ✓ PASS: Slay and loot blp assets present")
 
+print("[TEST] Verifying ITEM_START quest starter drop nodes...")
+env.pfDB.items.data[5001] = { U = { [6001] = 75 } }
+env.pfDB.items.loc[5001] = "Captain's Orders"
+env.pfDB.units.data[6001] = { lvl = 22, coords = { { 45.0, 55.0, 10 } } }
+env.pfDB.units.loc[6001] = "Defias Captain"
+env.pfDB.quests.data[300] = { lvl = 20, min = 15, start = { I = { 5001 } } }
+env.pfDB.quests.loc[300] = { T = "Orders of the Sea" }
+
+local addedNodes = {}
+env.pfMap = {
+  nodes = {},
+  AddNode = function(self, node) table.insert(addedNodes, node) end,
+  unifiedcache = {}
+}
+
+env.pfQuest_config["currentquestgivers"] = "1"
+env.pfQuest_config["epochHideItemDrops"] = "0"
+env.pfDatabase:SearchQuestID(300, {}, {})
+
+local foundItemStart = false
+for _, n in ipairs(addedNodes) do
+  if n.QTYPE == "ITEM_START" and n.item == "Captain's Orders" then
+    foundItemStart = true
+    assert(n.dropsources_levels["Defias Captain"] ~= nil, "Defias Captain should be in dropsources")
+    assert(n.dropsources_levels["Defias Captain"].chance == 75, "Chance should be 75%")
+  end
+end
+assert(foundItemStart, "ITEM_START node must be created for item-started quest")
+print("  ✓ PASS: ITEM_START node created with drop source metadata")
+
 print("test_epoch_features PASSED successfully!")
