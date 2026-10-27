@@ -1,40 +1,29 @@
 # pfQuest Reborn
 
-A quest helper, navigation arrow, and database browser for WoW 3.3.5a with Questie party synchronization, packaged as a standalone addon.
-
-Accept a quest and related NPCs, monsters, and objects appear on your map and minimap, with a navigation arrow pointing to the nearest objective. A database browser (`/db`) is included to look up units, items, objects, and quests.
-
-Built on [pfQuest](https://github.com/shagu/pfQuest) (Shagu, GPLv3), with UI refinements from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) (stevemcqueenz), Project Epoch compatibility and tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch) (Bennylavaa), and Questie party synchronization.
+A standalone edition of [pfQuest](https://github.com/shagu/pfQuest) for WoW 3.3.5a, combining UI refinements from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) and Project Epoch data/tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch), with added Questie party synchronization.
 
 ---
 
 ## Features
 
 - **Standalone Package**:
-  - Runs as a single addon without requiring separate data modules.
-  - Includes embedded database tables (bundled with Project Epoch data by default).
-  - Database flavor can be swapped for other expansions (Project Epoch, Vanilla 1.12, TBC 2.4.3, WotLK 3.3.5a).
-
-- **First-Run Setup & Completed Quest Sync**:
-  - A brief setup popup on first login to select marker style (*Simple Markers*, *Combined*, or *Spawn Points*) and arrow preferences.
-  - Optional **`/db query`** option to query the server for already completed quests (`QueryQuestsCompleted`) so they don't show on your map.
-  - Saves your choices and stays closed on subsequent logins and reloads.
+  - Single addon folder with embedded databases (pre-bundled with Project Epoch data).
+  - Database flavor can be swapped for Vanilla, TBC, or WotLK via `pfquest-db`.
 
 - **Questie Party Synchronization**:
   - Shares quest progress with group members running **Questie** (`questie` and `QuestieV1` protocols).
-  - Shows party members' objective counts and completion status on monster, object, and turn-in tooltips.
-  - Synchronizes objective updates and quest watch visibility within your party.
+  - Shows party members' objective counts and turn-in readiness on unit, object, and NPC tooltips.
+  - Synchronizes objective updates and quest watch visibility across the party.
   - Optional party chat completion announcements.
 
-- **Resource Efficiency**:
-  - Lazy-loaded database tables to reduce initial load time and memory usage.
-  - Batched map updates and cached lookups to avoid frame stutter during party play.
+- **Initial Setup & Completed Quest Sync**:
+  - Brief setup popup on first login to select marker style and arrow preferences.
+  - Optional **`/db query`** option to query the server for completed quests (`QueryQuestsCompleted`) to hide them from the map.
 
-- **Interface Refinements**:
-  - Flat dark theme with teal accents, based on pfQuest-Reforged.
-  - Tracker progress bars under quest titles.
+- **UI & Performance**:
+  - Flat dark theme with tracker progress bars from pfQuest-Reforged.
+  - Batched map updates and cached lookups to avoid lag spikes during party play.
   - Basic theme adaptation when GW2 UI or pfUI is installed.
-  - Directional navigation arrow pointing to active objectives.
 
 ---
 
