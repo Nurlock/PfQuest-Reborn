@@ -1404,6 +1404,11 @@ function comms:BroadcastFullQuestList(targetPlayer)
   local dist = targetPlayer and "WHISPER" or self:GetGroupDistribution()
   if not dist then return end
 
+  local numLog = GetNumQuestLogEntries and GetNumQuestLogEntries() or 0
+  if numLog > 0 and (not pfQuest.questlog or not next(pfQuest.questlog)) then
+    return
+  end
+
   local rawQuestList = {}
   if pfQuest.questlog then
     for questId, data in pairs(pfQuest.questlog) do
@@ -1457,6 +1462,14 @@ function comms:RequestFullQuestList()
 
   local serialized = Serializer:Serialize(packet, "b89")
   self:SendComm(COMM_PREFIX, serialized, dist)
+end
+
+function comms:SyncOnLoginOrReload()
+  if not self:IsEnabled() or not self:IsInGroup() then return end
+  self:UpdateLocalPlayerQuests()
+  self:BroadcastFullQuestList()
+  self:RequestFullQuestList()
+  self:SendVisibilitySnapshot()
 end
 
 -- ---------------------------------------------------------------------------
@@ -2358,10 +2371,12 @@ comms:SetScript("OnEvent", function()
   elseif event == "PLAYER_ENTERING_WORLD" then
     wasInGroup = comms:IsInGroup()
     if wasInGroup and comms:IsEnabled() then
-      comms:UpdateLocalPlayerQuests()
       comms:RequestFullQuestList()
-      comms:BroadcastFullQuestList()
-      comms:SendVisibilitySnapshot()
+      if pfQuest.questlog and next(pfQuest.questlog) then
+        comms:UpdateLocalPlayerQuests()
+        comms:BroadcastFullQuestList()
+        comms:SendVisibilitySnapshot()
+      end
     end
 
   elseif event == "QUEST_WATCH_UPDATE" then
