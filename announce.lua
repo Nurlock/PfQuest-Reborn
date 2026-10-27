@@ -88,6 +88,20 @@ pfQuestAnnounce.OnQuestUpdate = function(message)
   end
   objectiveState[itemName].lastCount = iNumItems
 
+  local announceFinished = not pfQuest_config or pfQuest_config["epochannounceFinished"] ~= "0"
+  local announceRemaining = pfQuest_config and pfQuest_config["epochannounceRemaining"] == "1"
+
+  if stillNeeded < 1 then
+    if not announceFinished or objectiveState[itemName].announced then
+      return
+    end
+  else
+    objectiveState[itemName].announced = false
+    if not announceRemaining then
+      return
+    end
+  end
+
   local questName = GetQuestNameForObjective(itemName)
   local itemId = GetItemIdForObjective(itemName)
   local itemLink = nil
@@ -100,26 +114,19 @@ pfQuestAnnounce.OnQuestUpdate = function(message)
   local showItem = pfQuest_config and pfQuest_config["epochannounceShowItem"] ~= "0"
 
   if stillNeeded < 1 then
-    if pfQuest_config and pfQuest_config["epochannounceFinished"] ~= "0" then
-      if not objectiveState[itemName].announced then
-        objectiveState[itemName].announced = true
-        local display = (showItem and itemLink) or itemName
-        if questName then
-          outMessage = "Finished " .. display .. " for " .. questName .. "."
-        else
-          outMessage = "Finished " .. display .. "."
-        end
-      end
+    objectiveState[itemName].announced = true
+    local display = (showItem and itemLink) or itemName
+    if questName then
+      outMessage = "Finished " .. display .. " for " .. questName .. "."
+    else
+      outMessage = "Finished " .. display .. "."
     end
   else
-    objectiveState[itemName].announced = false
-    if pfQuest_config and pfQuest_config["epochannounceRemaining"] == "1" then
-      local display = (showItem and itemLink) or itemName
-      if questName then
-        outMessage = display .. " for " .. questName .. " (" .. stillNeeded .. " left)"
-      else
-        outMessage = display .. " (" .. stillNeeded .. " left)"
-      end
+    local display = (showItem and itemLink) or itemName
+    if questName then
+      outMessage = display .. " for " .. questName .. " (" .. stillNeeded .. " left)"
+    else
+      outMessage = display .. " (" .. stillNeeded .. " left)"
     end
   end
 
