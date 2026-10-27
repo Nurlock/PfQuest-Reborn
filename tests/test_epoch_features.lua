@@ -243,4 +243,43 @@ env.pfQuestAutomation.OnEvent(nil, "QUEST_PROGRESS")
 assert(completed == true, "CompleteQuest must be called when quest is completable")
 print("  ✓ PASS: Quest automation event triggers verified")
 
+print("[TEST] Verifying Quest Chat Announcements...")
+load_file("announce.lua")
+assert(env.pfQuestAnnounce ~= nil, "pfQuestAnnounce must be defined")
+
+local sentMessage, sentChannel
+env.SendChatMessage = function(msg, chan)
+  sentMessage = msg
+  sentChannel = chan
+end
+
+-- Not in party: no announce
+env.GetNumPartyMembers = function() return 0 end
+env.GetNumRaidMembers = function() return 0 end
+env.pfQuest_config["epochannounceRemaining"] = "1"
+env.pfQuest_config["epochannounceFinished"] = "1"
+env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 1/5")
+assert(sentMessage == nil, "Must not announce when not in party or raid")
+
+-- In party: announcements work
+env.GetNumPartyMembers = function() return 2 end
+local out = env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 1/5")
+assert(out ~= nil and string.find(out, "4 left"), "Announcement must report 4 left: got " .. tostring(out))
+assert(sentChannel == "PARTY", "Channel should be PARTY")
+
+-- Duplicate count: ignored
+sentMessage = nil
+env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 1/5")
+assert(sentMessage == nil, "Duplicate count must not be announced")
+
+-- Next count
+env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 2/5")
+assert(sentMessage ~= nil and string.find(sentMessage, "3 left"), "Must announce 3 left")
+
+-- Finished
+sentMessage = nil
+local outFin = env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 5/5")
+assert(outFin ~= nil and string.find(outFin, "Finished"), "Must announce Finished: got " .. tostring(outFin))
+print("  ✓ PASS: Quest chat announcements verified")
+
 print("test_epoch_features PASSED successfully!")

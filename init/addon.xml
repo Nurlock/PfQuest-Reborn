@@ -16,6 +16,7 @@
   <Include file="..\nameplates.lua" />
   <Include file="..\continent.lua" />
   <Include file="..\automation.lua" />
+  <Include file="..\announce.lua" />
   <Include file="..\journal.lua" />
   <Include file="..\menu.lua" />
   <Include file="..\updatenotify.lua" />
