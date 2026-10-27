@@ -172,6 +172,11 @@ pfQuest_defconfig = {
   { text = L["Skip Accepting Commission Quests"], default = "1", type = "checkbox", config = "epochSkipCommissionQuests", parent = "epochAutoQuests" },
   { text = L["Automate Runecloth Turn-Ins"], default = "0", type = "checkbox", config = "epochAutomateRuneclothDonations", parent = "epochAutoQuests" },
 
+  { text = L["Chat Announcements"], default = nil, type = "header" },
+  { text = L["Announce Objective Progress"], default = "0", type = "checkbox", config = "epochannounceRemaining" },
+  { text = L["Announce Objective Completion"], default = "1", type = "checkbox", config = "epochannounceFinished" },
+  { text = L["Include Item Links in Announcements"], default = "1", type = "checkbox", config = "epochannounceShowItem" },
+
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
   { text = L["Reset Quest History"], default = "1", type = "button", func = reset.history },
