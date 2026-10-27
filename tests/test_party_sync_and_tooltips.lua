@@ -353,4 +353,29 @@ end
 assert(syncReplied, "PFQUEST_SYNC_REQUEST must trigger full quest list broadcast on pfqe prefix")
 print("  ✓ PASS: PFQUEST_SYNC_REQUEST triggers dual-protocol broadcast")
 
+-- Test independent protocol toggles
+env.pfQuest_config["epochgroupsync"] = "0"
+assert(comms:IsEpochSyncEnabled() == false, "epochgroupsync=0 must disable epoch sync")
+assert(comms:IsQuestieEnabled() == true, "questiegroup=1 must keep questie sync active")
+sentAddonMessages = {}
+comms:BroadcastQuestUpdate(100)
+local foundPfqeWhenDisabled = false
+local foundQuestieWhenEnabled = false
+for _, msg in ipairs(sentAddonMessages) do
+  if msg.prefix == "pfqe" then foundPfqeWhenDisabled = true end
+  if msg.prefix == "questie" then foundQuestieWhenEnabled = true end
+end
+assert(foundPfqeWhenDisabled == false, "Must not broadcast pfqe when epochgroupsync=0")
+assert(foundQuestieWhenEnabled == true, "Must still broadcast questie when questiegroup=1")
+
+env.pfQuest_config["questiegroup"] = "0"
+assert(comms:IsQuestieEnabled() == false, "questiegroup=0 must disable questie sync")
+assert(comms:IsEnabled() == false, "Disabling both protocols must disable comms completely")
+
+env.pfQuest_config["epochgroupsync"] = "1"
+env.pfQuest_config["questiegroup"] = "1"
+assert(comms:IsEnabled() == true, "Re-enabling protocols must restore comms")
+
+print("  ✓ PASS: Independent toggles for Questie and pfQuest-epoch sharing verified")
+
 print("\ntest_party_sync_and_tooltips PASSED successfully!")

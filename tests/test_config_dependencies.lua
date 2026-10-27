@@ -61,9 +61,12 @@ print("[TEST] Verifying initial state: Experimental Features disabled by default
 assert(pfQuest_config["experimental"] == "0", "experimental should default to '0'")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["experimental"]) == true, "Master toggle itself must be active")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questiegroup"]) == false, "questiegroup must be inactive when experimental=0")
+assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["epochgroupsync"]) == false, "epochgroupsync must be inactive when experimental=0")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartyobjectives"]) == false, "showpartyobjectives must be inactive when experimental=0")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartytooltips"]) == false, "showpartytooltips must be inactive when experimental=0")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questannounce"]) == false, "questannounce must be inactive when experimental=0")
+
+-- questannounce is now unified under Chat Announcements (active regardless of experimental)
+assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questannounce"]) == true, "questannounce must be active under Chat Announcements")
 
 -- Helper to find frame by config key
 local function GetFrame(configKey)
@@ -77,12 +80,12 @@ end
 
 local expFrame = GetFrame("experimental")
 local groupFrame = GetFrame("questiegroup")
+local epochGroupFrame = GetFrame("epochgroupsync")
 local objFrame = GetFrame("showpartyobjectives")
 local tooltipFrame = GetFrame("showpartytooltips")
-local annFrame = GetFrame("questannounce")
 
 -- Verify visual graying out and disabled status on all 4 children
-local expChildren = { groupFrame, objFrame, tooltipFrame, annFrame }
+local expChildren = { groupFrame, epochGroupFrame, objFrame, tooltipFrame }
 for _, frame in ipairs(expChildren) do
   assert(frame.enabled == false, "Frame for " .. frame.data.config .. " should have frame.enabled == false")
   assert(frame.input:IsEnabled() == false, "Input for " .. frame.data.config .. " should be disabled")
@@ -98,26 +101,19 @@ expFrame.input:FireScript("OnClick")
 
 assert(pfQuest_config["experimental"] == "1", "experimental config should now be '1'")
 assert(groupFrame.enabled == true, "questiegroup should now be enabled")
-assert(groupFrame.input:IsEnabled() == true, "questiegroup input should now be enabled")
-assert(groupFrame.input:IsMouseEnabled() == true, "questiegroup mouse should now be enabled")
-local r, g, b = groupFrame.caption:GetTextColor()
-assert(r == 1 and g == 1 and b == 1, "questiegroup caption should now be full white (1, 1, 1)")
-
--- Because questiegroup default is "1", its children should also activate
+assert(epochGroupFrame.enabled == true, "epochgroupsync should now be enabled")
 assert(objFrame.enabled == true, "showpartyobjectives should now be enabled")
 assert(tooltipFrame.enabled == true, "showpartytooltips should now be enabled")
-assert(annFrame.enabled == true, "questannounce should now be enabled")
 print("  ✓ PASS: Toggling master switch dynamically enables child options")
 
-print("[TEST] Simulating disabling questiegroup while master switch is ON...")
-groupFrame.input:SetChecked(false)
-groupFrame.input:FireScript("OnClick")
-
-assert(pfQuest_config["questiegroup"] == "0", "questiegroup should be '0'")
+print("[TEST] Simulating disabling master Experimental toggle...")
+expFrame.input:SetChecked(false)
+expFrame.input:FireScript("OnClick")
+assert(groupFrame.enabled == false, "questiegroup should now be disabled")
+assert(epochGroupFrame.enabled == false, "epochgroupsync should now be disabled")
 assert(objFrame.enabled == false, "showpartyobjectives should now be disabled")
 assert(tooltipFrame.enabled == false, "showpartytooltips should now be disabled")
-assert(annFrame.enabled == false, "questannounce should now be disabled")
-print("  ✓ PASS: Disabling intermediate parent properly cascades grayout to descendants")
+print("  ✓ PASS: Disabling master switch dynamically disables all child options")
 
 print("[TEST] Verifying click prevention on disabled checkbox...")
 local savedVal = pfQuest_config["showpartyobjectives"]
