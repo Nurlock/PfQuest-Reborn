@@ -40,6 +40,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends lua5.1
           find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac5.1 -p
 
+      - name: Run Regression Test Suite
+        run: |
+          lua5.1 tests/run_all_tests.lua
+
       - name: Resolve version (CI-computed, not human-picked)
         id: ver
         run: |

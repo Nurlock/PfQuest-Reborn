@@ -30,12 +30,12 @@ versioncheck:SetScript("OnEvent", function()
     end
 
     return
-  elseif event == "CHAT_MSG_ADDON" and arg1 == "pfQReforged" then
+  elseif event == "CHAT_MSG_ADDON" and arg1 == "pfQReborn" then
     local v, remoteversion = strsplit(":", arg2)
     local remoteversion = tonumber(remoteversion)
     if v == "VERSION" and remoteversion then
       remote = remote and max(remote, remoteversion) or remoteversion
-      if remote > version then
+      if version and remote > version then
         pfQuest_config.latest = remote
       end
     end
@@ -49,9 +49,11 @@ versioncheck:SetScript("OnEvent", function()
     return
   end
 
-  -- send updates
-  for _, chan in pairs(channels) do
-    SendAddonMessage("pfQReforged", "VERSION:" .. version, chan)
+  -- send updates only on initial login or group join
+  if version and (event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED") then
+    for _, chan in pairs(channels) do
+      SendAddonMessage("pfQReborn", "VERSION:" .. version, chan)
+    end
   end
 
   -- abort here on group member events
@@ -62,7 +64,7 @@ versioncheck:SetScript("OnEvent", function()
   -- display available update
   if version and version > 0 and pfQuest_config.latest and pfQuest_config.latest > version and not displayed then
     DEFAULT_CHAT_FRAME:AddMessage(
-      "|cff33ffccpf|cffffffffQuest |cff888888Reforged|r: " .. pfQuest_Loc["New version available!"]
+      "|cff33ffccpf|cffffffffQuest |cff888888[Reborn]|r: " .. pfQuest_Loc["New version available!"]
     )
     displayed = true
   end

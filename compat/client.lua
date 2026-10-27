@@ -102,9 +102,9 @@ if client <= 11200 then
   end
 
   _G.StaticPopupDialogs["MEMORY_EXHAUSTED"] = {
-    text = TEXT(memlimit),
-    button1 = TEXT(QUIT_NOW),
-    button2 = TEXT(CANCEL),
+    text = memlimit,
+    button1 = QUIT_NOW,
+    button2 = CANCEL,
     hasEditBox = 1,
     showAlert = 1,
     OnShow = function()

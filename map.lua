@@ -56,17 +56,12 @@ controlkey:SetScript("OnUpdate", function()
   end
 end)
 
--- mainmap_inversescale separates two distinct scale events on the world map:
---   * MAP MODE change (windowed/questlist/fullmap): Blizzard scales BOTH
---     WorldMapDetailFrame and WorldMapButton by WORLDMAP_SETTINGS.size.
---     Their LOCAL scales stay equal -> ratio = 1 -> no compensation, pins
---     scale naturally with the map.
---   * ZOOM addons (Magnify): scale ONLY WorldMapDetailFrame while keeping
---     WorldMapButton.local at 1 (Magnify reparents Button under DetailFrame).
---     Local ratio diverges -> we compensate so pins keep a constant screen
---     pixel size through the zoom.
--- Formula: mainmap_inversescale = WorldMapButton:GetScale() / WorldMapDetailFrame:GetScale()
+-- mainmap_inversescale normalizes world map node sizes during zoom:
+--   * Uses (WorldMapButton:GetEffectiveScale() / WorldMapFrame:GetScale())
+--     so outer window resizing (e.g. pfUI, UI scale) is factored out while
+--     internal zoom (Magnify, Mapster, etc.) is compensated.
 -- Global (no `local`) so pfQuest-epoch's continent pins can read the same value.
+local mainmap_base_effective_scale = nil
 mainmap_inversescale = 1.0
 
 local validmaps = setmetatable({}, { __mode = "kv" })
@@ -412,6 +407,19 @@ function pfMap:HexDifficultyColor(level, force)
   end
 end
 
+local function TooltipHasQuest(tip, questTitle)
+  if not tip or not tip.NumLines or not questTitle then return false end
+  local tipName = tip.GetName and tip:GetName()
+  for i = 1, tip:NumLines() do
+    local line = tipName and _G[tipName .. "TextLeft" .. i]
+    local txt = line and line.GetText and line:GetText()
+    if txt and strfind(txt, questTitle, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
 function pfMap:ShowTooltip(meta, tooltip)
   local catch = nil
   local catch_obj = nil
@@ -419,6 +427,10 @@ function pfMap:ShowTooltip(meta, tooltip)
 
   -- add quest data
   if meta["quest"] then
+    if TooltipHasQuest(tooltip, meta["quest"]) then
+      return
+    end
+
     -- scan all quest entries for matches
     for qid = 1, GetNumQuestLogEntries() do
       local qtitle, _, _, _, _, complete = compat.GetQuestLogTitle(qid)
@@ -442,8 +454,11 @@ function pfMap:ShowTooltip(meta, tooltip)
                 strfind(text, pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
               if monsterName and meta["spawn"] == monsterName then
                 catch_obj = true
-                local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                tooltip:AddLine("|cffaaaaaa- |r" .. monsterName .. ": " .. objNum .. "/" .. objNeeded, r, g, b)
+                local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
+                if not inGroup then
+                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                  tooltip:AddLine("|cffaaaaaa- |r" .. monsterName .. ": " .. objNum .. "/" .. objNeeded, r, g, b)
+                end
               end
             elseif table.getn(meta["item"]) > 0 and type == "item" and meta["droprate"] then
               -- loot
@@ -452,24 +467,27 @@ function pfMap:ShowTooltip(meta, tooltip)
               for mid, item in pairs(meta["item"]) do
                 if item == itemName then
                   catch_obj = true
-                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                  local dr, dg, db = pfMap.tooltip:GetColor(tonumber(meta["droprate"]), 100)
-                  local lootcolor = string.format("%02x%02x%02x", dr * 255, dg * 255, db * 255)
-                  tooltip:AddLine(
-                    "|cffaaaaaa- |r"
-                      .. itemName
-                      .. ": "
-                      .. objNum
-                      .. "/"
-                      .. objNeeded
-                      .. " |cff555555[|cff"
-                      .. lootcolor
-                      .. meta["droprate"]
-                      .. "%|cff555555]",
-                    r,
-                    g,
-                    b
-                  )
+                  local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
+                  if not inGroup then
+                    local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                    local dr, dg, db = pfMap.tooltip:GetColor(tonumber(meta["droprate"]), 100)
+                    local lootcolor = string.format("%02x%02x%02x", dr * 255, dg * 255, db * 255)
+                    tooltip:AddLine(
+                      "|cffaaaaaa- |r"
+                        .. itemName
+                        .. ": "
+                        .. objNum
+                        .. "/"
+                        .. objNeeded
+                        .. " |cff555555[|cff"
+                        .. lootcolor
+                        .. meta["droprate"]
+                        .. "%|cff555555]",
+                      r,
+                      g,
+                      b
+                    )
+                  end
                 end
               end
             elseif table.getn(meta["item"]) > 0 and type == "item" and meta["sellcount"] then
@@ -479,24 +497,27 @@ function pfMap:ShowTooltip(meta, tooltip)
               for mid, item in pairs(meta["item"]) do
                 if item == itemName then
                   catch_obj = true
-                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                  local sellcount = tonumber(meta["sellcount"]) > 0
-                      and " |cff555555[|cffcccccc" .. meta["sellcount"] .. "x" .. "|cff555555]"
-                    or ""
-                  tooltip:AddLine(
-                    "|cffaaaaaa- |r"
-                      .. pfQuest_Loc["Buy"]
-                      .. ": "
-                      .. itemName
-                      .. ": "
-                      .. objNum
-                      .. "/"
-                      .. objNeeded
-                      .. sellcount,
-                    r,
-                    g,
-                    b
-                  )
+                  local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
+                  if not inGroup then
+                    local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                    local sellcount = tonumber(meta["sellcount"]) > 0
+                        and " |cff555555[|cffcccccc" .. meta["sellcount"] .. "x" .. "|cff555555]"
+                      or ""
+                    tooltip:AddLine(
+                      "|cffaaaaaa- |r"
+                        .. pfQuest_Loc["Buy"]
+                        .. ": "
+                        .. itemName
+                        .. ": "
+                        .. objNum
+                        .. "/"
+                        .. objNeeded
+                        .. sellcount,
+                      r,
+                      g,
+                      b
+                    )
+                  end
                 end
               end
             end
@@ -504,7 +525,7 @@ function pfMap:ShowTooltip(meta, tooltip)
         end
         -- Reforged: show party progress for shared active quests
         if pfQuestieComms and pfQuestieComms.AddPartyTooltipLines then
-          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip)
+          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip, meta)
         end
       end
     end
@@ -514,7 +535,7 @@ function pfMap:ShowTooltip(meta, tooltip)
         local pColor = pfQuestieComms and pfQuestieComms:GetPlayerColor(meta["partyMember"]) or "|cff33ffcc"
         tooltip:AddLine("|cff555555[|cff33ffcc!|cff555555]|r " .. meta["quest"] .. " (" .. pColor .. (pfQuest_Loc["Party: "] or "Party: ") .. meta["partyMember"] .. "|r)", 1, 1, 0.7)
         if pfQuestieComms and pfQuestieComms.AddPartyTooltipLines then
-          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip)
+          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip, meta)
         end
       else
         tooltip:AddLine("|cff555555[|cffffcc00!|cff555555]|r " .. meta["quest"], 1, 1, 0.7)
@@ -1047,6 +1068,7 @@ function pfMap:DeleteNode(addon, title)
   elseif pfMap.titleIndex[addon] and pfMap.titleIndex[addon][title] then
     -- fast path: use reverse index to find exactly which (map, coords) to clear
     for map, coords_set in pairs(pfMap.titleIndex[addon][title]) do
+      pfMap.dirtyMaps[map] = true
       if pfMap.nodes[addon] and pfMap.nodes[addon][map] then
         for coords in pairs(coords_set) do
           if pfMap.nodes[addon][map][coords] then
@@ -1056,7 +1078,6 @@ function pfMap:DeleteNode(addon, title)
             else
               -- coord survives with remaining titles; reprocess on next UpdateNodes
               pfMap.dirtyNodes[pfMap.nodes[addon][map][coords]] = true
-              pfMap.dirtyMaps[map] = true
             end
           end
         end
@@ -1076,6 +1097,42 @@ function pfMap:DeleteNode(addon, title)
         end
       end
       pfMap.tooltipIndex[title] = nil
+    end
+
+    if pfMap.unifiedcache and pfMap.unifiedcache[title] then
+      pfMap.unifiedcache[title] = nil
+    end
+  elseif pfMap.nodes[addon] then
+    -- fallback: linear scan over pfMap.nodes[addon] if reverse index had a miss
+    for map, coords_tbl in pairs(pfMap.nodes[addon]) do
+      for coords, titles in pairs(coords_tbl) do
+        if titles[title] then
+          titles[title] = nil
+          pfMap.dirtyMaps[map] = true
+          if IsEmpty(titles) then
+            coords_tbl[coords] = nil
+          else
+            pfMap.dirtyNodes[titles] = true
+          end
+        end
+      end
+    end
+
+    local spawns = pfMap.tooltipIndex and pfMap.tooltipIndex[title]
+    if spawns then
+      for spawn in pairs(spawns) do
+        if pfMap.tooltips[spawn] then
+          pfMap.tooltips[spawn][title] = nil
+          if IsEmpty(pfMap.tooltips[spawn]) then
+            pfMap.tooltips[spawn] = nil
+          end
+        end
+      end
+      pfMap.tooltipIndex[title] = nil
+    end
+
+    if pfMap.unifiedcache and pfMap.unifiedcache[title] then
+      pfMap.unifiedcache[title] = nil
     end
   end
 
@@ -1300,7 +1357,7 @@ local function minimapNodeLevel(layer)
   local base = pfMap.mlevel
     or (pfMap.drawlayer and pfMap.drawlayer.GetFrameLevel and pfMap.drawlayer:GetFrameLevel())
     or 0
-  return base + 5 + (layer or 0)
+  return math.min(base + 5 + (layer or 0), 128)
 end
 pfMap.MinimapNodeLevel = minimapNodeLevel
 
@@ -1481,7 +1538,10 @@ end
 function pfMap:ResizeNodes()
   if pfMap.pins then
     for i = 1, table.getn(pfMap.pins) do
-      pfMap:ResizeNode(pfMap.pins[i])
+      local pin = pfMap.pins[i]
+      if pin and pin:IsShown() then
+        pfMap:ResizeNode(pin)
+      end
     end
   end
 end
@@ -2013,18 +2073,31 @@ if compat.client >= 30300 then
   end
 end
 
--- Recompute mainmap_inversescale from local scales when DetailFrame or
--- Button is rescaled. Also keep WorldMapTooltip's scale in sync with the
--- current map mode so Blizzard's tooltip (parent = WorldMapFrame, never
--- scaled by the mode toggles) shrinks together with windowed/questlist mode.
+-- Recompute mainmap_inversescale on map scale/zoom changes. Normalizes out
+-- WorldMapFrame scale so outer frame resizes (pfUI, UI scale) cancel out while
+-- internal zoom (Magnify, Mapster, etc.) is compensated.
+-- Also keeps WorldMapTooltip's scale in sync with windowed/questlist mode.
 function pfMap:OnMapScaleChanged(frame, scale, hookedfunction)
   hookedfunction(frame, scale)
 
-  local dl = WorldMapDetailFrame:GetScale()
-  local bl = WorldMapButton and WorldMapButton:GetScale() or 0
-  if dl <= 0 or bl <= 0 then return end
+  local wmFrame = WorldMapFrame
+  local wmButton = WorldMapButton
+  if not wmFrame or not wmButton then return end
 
-  local new_inversescale = bl / dl
+  local fScale = wmFrame:GetScale()
+  if not fScale or fScale <= 0 then return end
+
+  local effScale = wmButton:GetEffectiveScale()
+  if not effScale or effScale <= 0 then return end
+
+  local zoom_scale = effScale / fScale
+  if not mainmap_base_effective_scale then
+    mainmap_base_effective_scale = zoom_scale
+  end
+
+  if zoom_scale <= 0 then return end
+
+  local new_inversescale = mainmap_base_effective_scale / zoom_scale
   if math.abs(new_inversescale - mainmap_inversescale) > 0.001 then
     mainmap_inversescale = new_inversescale
     pfMap:ResizeNodes()
@@ -2038,15 +2111,19 @@ function pfMap:OnMapScaleChanged(frame, scale, hookedfunction)
   end
 end
 
--- Hook DetailFrame and WorldMapButton scale changes. In 3.3.5 Blizzard's mode
--- toggles (WorldMap_ToggleSizeDown/Up, SetFullMapView, SetQuestMapView, OnLoad)
--- scale BOTH frames in sequence: DetailFrame:SetScale(x) then
--- WorldMapButton:SetScale(x). After both fire, the local ratio is 1.0 (any
--- stale intermediate ratio latched by the first hook is replaced by the
--- second). Magnify scales DetailFrame independently while keeping
--- WorldMapButton.local = 1, so the DetailFrame hook alone catches zoom.
-local pfHookWorldMapDetailFrame_SetScale = WorldMapDetailFrame.SetScale
-WorldMapDetailFrame.SetScale = function(frame, scale) pfMap:OnMapScaleChanged(frame, scale, pfHookWorldMapDetailFrame_SetScale) end
+-- Hook WorldMapFrame, WorldMapDetailFrame, and WorldMapButton scale changes.
+-- Normalizes outer frame scaling (pfUI) while catching internal zooms (Magnify).
+if WorldMapFrame and WorldMapFrame.SetScale then
+  local pfHookWorldMapFrame_SetScale = WorldMapFrame.SetScale
+  WorldMapFrame.SetScale = function(frame, scale) pfMap:OnMapScaleChanged(frame, scale, pfHookWorldMapFrame_SetScale) end
+end
 
-local pfHookWorldMapButton_SetScale = WorldMapButton.SetScale
-WorldMapButton.SetScale = function(frame, scale) pfMap:OnMapScaleChanged(frame, scale, pfHookWorldMapButton_SetScale) end
+if WorldMapDetailFrame and WorldMapDetailFrame.SetScale then
+  local pfHookWorldMapDetailFrame_SetScale = WorldMapDetailFrame.SetScale
+  WorldMapDetailFrame.SetScale = function(frame, scale) pfMap:OnMapScaleChanged(frame, scale, pfHookWorldMapDetailFrame_SetScale) end
+end
+
+if WorldMapButton and WorldMapButton.SetScale then
+  local pfHookWorldMapButton_SetScale = WorldMapButton.SetScale
+  WorldMapButton.SetScale = function(frame, scale) pfMap:OnMapScaleChanged(frame, scale, pfHookWorldMapButton_SetScale) end
+end

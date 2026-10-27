@@ -6,9 +6,9 @@ local L = pfQuest_Loc
 local pairs = pairs
 local getn = table.getn
 
-pfQuest_history = {}
-pfQuest_colors = {}
-pfQuest_config = {}
+pfQuest_history = pfQuest_history or {}
+pfQuest_colors = pfQuest_colors or {}
+pfQuest_config = pfQuest_config or {}
 
 local reset = {
   config = function()
@@ -124,18 +124,19 @@ pfQuest_defconfig = {
 
   { text = L["Routes"], default = nil, type = "header" },
   { text = L["Show Route Between Objects"], default = "1", type = "checkbox", config = "routes" },
-  { text = L["Include Unified Quest Locations"], default = "1", type = "checkbox", config = "routecluster" },
-  { text = L["Include Quest Enders"], default = "1", type = "checkbox", config = "routeender" },
-  { text = L["Include Quest Starters"], default = "0", type = "checkbox", config = "routestarter" },
-  { text = L["Show Route On Minimap"], default = "0", type = "checkbox", config = "routeminimap" },
-  { text = L["Show Arrow Along Routes"], default = "1", type = "checkbox", config = "arrow" },
-  { text = L["Arrow Scale"], default = "1.0", type = "slider", config = "arrowscale", min = 0.5, max = 3.0, step = 0.1 },
+  { text = L["Include Unified Quest Locations"], default = "1", type = "checkbox", config = "routecluster", parent = "routes" },
+  { text = L["Include Quest Enders"], default = "1", type = "checkbox", config = "routeender", parent = "routes" },
+  { text = L["Include Quest Starters"], default = "0", type = "checkbox", config = "routestarter", parent = "routes" },
+  { text = L["Show Route On Minimap"], default = "0", type = "checkbox", config = "routeminimap", parent = "routes" },
+  { text = L["Show Arrow Along Routes"], default = "1", type = "checkbox", config = "arrow", parent = "routes" },
+  { text = L["Arrow Scale"], default = "1.0", type = "slider", config = "arrowscale", min = 0.5, max = 3.0, step = 0.1, parent = "arrow" },
 
   { text = L["Experimental Features"], default = nil, type = "header" },
   { text = L["Enable Experimental Features"], default = "0", type = "checkbox", config = "experimental" },
-  { text = L["Enable Questie Group Sync"], default = "1", type = "checkbox", config = "questiegroup" },
-  { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives" },
-  { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips" },
+  { text = L["Enable Questie Group Sync"], default = "1", type = "checkbox", config = "questiegroup", parent = "experimental" },
+  { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives", parent = "questiegroup" },
+  { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "questiegroup" },
+  { text = L["Announce Quest Completion to Party"], default = "1", type = "checkbox", config = "questannounce", parent = "questiegroup" },
 
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
@@ -217,7 +218,8 @@ end
 
 -- fallback if no matching addon found
 if not pfQuestConfig.path then
-  pfQuestConfig.path = "Interface\\AddOns\\pfQuest"
+  pfQuestConfig.path = "Interface\\AddOns\\pfQuest-Reborn"
+  pfQuestConfig.addonName = pfQuestConfig.addonName or "pfQuest-Reborn"
   pfQuestConfig.version = "unknown"
 end
 
@@ -415,7 +417,14 @@ function pfQuestConfig:CreateConfigEntries(config)
   self.tabButtons = {}
   self.tabPanels = {}
   self.tabList = {}
+  self.configMap = {}
   configframes = {}
+
+  for _, data in ipairs(config) do
+    if data.config then
+      self.configMap[data.config] = data
+    end
+  end
 
   -- Parse config items into tabs
   local currentTabKey = nil
@@ -528,6 +537,7 @@ function pfQuestConfig:CreateConfigEntries(config)
       frame:SetWidth(panelWidth - 20)
       frame:SetHeight(rowHeight)
       frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, currentY)
+      frame.data = data
 
       configframes[data.text] = frame
       if data.config then
@@ -535,9 +545,19 @@ function pfQuestConfig:CreateConfigEntries(config)
       end
       table.insert(self.entryFrames, frame)
 
+      local indent = 5
+      if data.parent then
+        local p = self.configMap and self.configMap[data.parent]
+        if p and p.parent then
+          indent = 24
+        else
+          indent = 14
+        end
+      end
+
       frame.caption = frame:CreateFontString("Status", "LOW", "GameFontWhite")
       frame.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
-      frame.caption:SetPoint("LEFT", 5, 0)
+      frame.caption:SetPoint("LEFT", indent, 0)
       frame.caption:SetPoint("RIGHT", -120, 0)
       frame.caption:SetJustifyH("LEFT")
       frame.caption:SetText(data.text)
@@ -556,12 +576,17 @@ function pfQuestConfig:CreateConfigEntries(config)
           frame.input:SetChecked()
         end
         frame.input:SetScript("OnClick", function()
+          if frame.enabled == false then
+            this:SetChecked(pfQuest_config[this.config] == "1")
+            return
+          end
           if this:GetChecked() then
             pfQuest_config[this.config] = "1"
           else
             pfQuest_config[this.config] = "0"
           end
           pfQuest:ResetAll()
+          pfQuestConfig:UpdateDependencies()
         end)
       elseif data.type == "text" then
         frame.input = CreateFrame("EditBox", nil, frame)
@@ -579,6 +604,7 @@ function pfQuestConfig:CreateConfigEntries(config)
         frame.input.config = data.config
         frame.input:SetText(pfQuest_config[data.config] or data.default or "")
         frame.input:SetScript("OnTextChanged", function()
+          if frame.enabled == false then return end
           pfQuest_config[this.config] = this:GetText()
         end)
         pfUI.api.CreateBackdrop(frame.input, nil, true)
@@ -618,6 +644,7 @@ function pfQuestConfig:CreateConfigEntries(config)
 
         frame.input.updating = false
         frame.input:SetScript("OnValueChanged", function()
+          if frame.enabled == false then return end
           if this.updating then return end
           this.updating = true
 
@@ -643,7 +670,10 @@ function pfQuestConfig:CreateConfigEntries(config)
         frame.input:SetWidth(44)
         frame.input:SetHeight(20)
         frame.input:SetPoint("RIGHT", -10, 0)
-        frame.input:SetScript("OnClick", data.func)
+        frame.input:SetScript("OnClick", function()
+          if frame.enabled == false then return end
+          if data.func then data.func() end
+        end)
         frame.input.text = frame.input:CreateFontString("Caption", "LOW", "GameFontWhite")
         frame.input.text:SetAllPoints(frame.input)
         frame.input.text:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
@@ -672,6 +702,76 @@ function pfQuestConfig:CreateConfigEntries(config)
   local defaultTab = (self.selectedTab and tabMap[self.selectedTab] and self.selectedTab) or (tabOrder[1] and tabOrder[1].key)
   if defaultTab then
     self:SelectTab(defaultTab)
+  end
+
+  self:UpdateDependencies()
+end
+
+function pfQuestConfig:IsEntryActive(data)
+  if not data or not data.parent then
+    return true
+  end
+  local parentKey = data.parent
+  local parentData = self.configMap and self.configMap[parentKey]
+  if parentData and not self:IsEntryActive(parentData) then
+    return false
+  end
+  local val = pfQuest_config and pfQuest_config[parentKey]
+  if val == nil and parentData then
+    val = parentData.default
+  end
+  return val == "1"
+end
+
+function pfQuestConfig:SetEntryEnabled(frame, enabled)
+  frame.enabled = enabled
+  local a = pfQuestTheme and pfQuestTheme.accent or { 0.2, 1, 0.8 }
+
+  if frame.caption then
+    if enabled then
+      frame.caption:SetTextColor(1, 1, 1, 1)
+      if frame.caption.SetAlpha then frame.caption:SetAlpha(1.0) end
+    else
+      frame.caption:SetTextColor(0.5, 0.5, 0.5, 1)
+      if frame.caption.SetAlpha then frame.caption:SetAlpha(0.6) end
+    end
+  end
+
+  if frame.input then
+    if enabled then
+      if frame.input.Enable then frame.input:Enable() end
+      if frame.input.EnableMouse then frame.input:EnableMouse(true) end
+      if frame.input.SetAlpha then frame.input:SetAlpha(1.0) end
+      if frame.data and frame.data.type == "text" and frame.input.SetTextColor then
+        frame.input:SetTextColor(a[1], a[2], a[3], 1)
+      end
+    else
+      if frame.input.Disable then frame.input:Disable() end
+      if frame.input.EnableMouse then frame.input:EnableMouse(false) end
+      if frame.input.ClearFocus then frame.input:ClearFocus() end
+      if frame.input.SetAlpha then frame.input:SetAlpha(0.35) end
+      if frame.data and frame.data.type == "text" and frame.input.SetTextColor then
+        frame.input:SetTextColor(0.5, 0.5, 0.5, 1)
+      end
+    end
+  end
+
+  if frame.value then
+    if enabled then
+      frame.value:SetTextColor(a[1], a[2], a[3], 1)
+    else
+      frame.value:SetTextColor(0.5, 0.5, 0.5, 1)
+    end
+  end
+end
+
+function pfQuestConfig:UpdateDependencies()
+  if not self.entryFrames then return end
+  for _, frame in ipairs(self.entryFrames) do
+    if frame.data then
+      local active = self:IsEntryActive(frame.data)
+      self:SetEntryEnabled(frame, active)
+    end
   end
 end
 
@@ -704,6 +804,7 @@ function pfQuestConfig:UpdateConfigEntries()
       end
     end
   end
+  self:UpdateDependencies()
 end
 
 -- Register ADDON_LOADED event handler after all methods are defined
@@ -717,11 +818,21 @@ pfQuestConfig:SetScript("OnEvent", function()
   -- config window, dead arrow, menu.lua crash on fresh installs). The
   -- Match only the core addon's ADDON_LOADED event, not child database modules
   local mainAddon = pfQuestConfig.addonName or "pfQuest-Reborn"
-  if not pfQuestConfig.initialized and arg1 == mainAddon then
+  if not pfQuestConfig.initialized and (arg1 == mainAddon or not arg1) then
     pfQuestConfig.initialized = true
+
+    -- Detect whether this is truly a fresh first-run before defaults are populated
+    local isFresh = (not pfQuest_config) or (next(pfQuest_config) == nil)
+    pfQuestConfig.isFirstRun = isFresh
+
     pfQuestConfig:LoadConfig()
     pfQuestConfig:MigrateHistory()
     pfQuestConfig:CreateConfigEntries(pfQuest_defconfig)
+
+    -- If existing settings were present, mark welcome as done to prevent wizard popups on /reload
+    if not isFresh and not pfQuest_config["welcome"] then
+      pfQuest_config["welcome"] = "1"
+    end
 
     pfQuest_questcache = pfQuest_questcache or {}
     pfQuest_history = pfQuest_history or {}
@@ -749,10 +860,12 @@ do -- welcome/init popup dialog
   local config_stage = {
     arrow = 1,
     mode = 2,
+    query = 1,
   }
 
   local desaturate = function(texture, state)
-    local supported = texture:SetDesaturated(state)
+    if not texture then return end
+    local supported = texture.SetDesaturated and texture:SetDesaturated(state)
     if not supported then
       if state then
         texture:SetVertexColor(0.5, 0.5, 0.5)
@@ -765,12 +878,14 @@ do -- welcome/init popup dialog
   -- create welcome/init window
   pfQuestInit = CreateFrame("Frame", "pfQuestInit", UIParent)
   pfQuestInit:Hide()
-  pfQuestInit:SetWidth(400)
-  pfQuestInit:SetHeight(270)
+  pfQuestInit:SetWidth(420)
+  pfQuestInit:SetHeight(310)
   pfQuestInit:SetMovable(true)
   pfQuestInit:EnableMouse(true)
   pfQuestInit:SetPoint("CENTER", 0, 0)
   pfQuestInit:RegisterEvent("PLAYER_ENTERING_WORLD")
+  table.insert(UISpecialFrames, "pfQuestInit")
+
   pfQuestInit:SetScript("OnMouseDown", function()
     this:StartMoving()
   end)
@@ -779,8 +894,15 @@ do -- welcome/init popup dialog
     this:StopMovingOrSizing()
   end)
 
+  pfQuestInit:SetScript("OnHide", function()
+    if pfQuest_config then
+      pfQuest_config["welcome"] = "1"
+    end
+  end)
+
   pfQuestInit:SetScript("OnEvent", function()
-    if pfQuest_config.welcome ~= "1" then
+    -- Only show wizard on genuine first run, never on subsequent /reload or logins
+    if pfQuest_config and pfQuest_config.welcome ~= "1" and pfQuestConfig.isFirstRun then
       -- parse current config
       if pfQuest_config["showspawn"] == "0" and pfQuest_config["showcluster"] == "1" then
         config_stage.mode = 1
@@ -793,29 +915,61 @@ do -- welcome/init popup dialog
       end
 
       pfQuestInit:Show()
+    else
+      if pfQuest_config then
+        pfQuest_config["welcome"] = "1"
+      end
     end
     this:UnregisterAllEvents()
   end)
 
   pfQuestInit:SetScript("OnShow", function()
     -- reload ui elements
-    desaturate(pfQuestInit[1].bg, true)
-    desaturate(pfQuestInit[2].bg, true)
-    desaturate(pfQuestInit[3].bg, true)
-    desaturate(pfQuestInit[config_stage.mode].bg, false)
-    pfQuestInit.checkbox:SetChecked(config_stage.arrow)
+    if pfQuestInit[1] and pfQuestInit[1].bg then desaturate(pfQuestInit[1].bg, true) end
+    if pfQuestInit[2] and pfQuestInit[2].bg then desaturate(pfQuestInit[2].bg, true) end
+    if pfQuestInit[3] and pfQuestInit[3].bg then desaturate(pfQuestInit[3].bg, true) end
+    if pfQuestInit[config_stage.mode] and pfQuestInit[config_stage.mode].bg then
+      desaturate(pfQuestInit[config_stage.mode].bg, false)
+    end
+    if pfQuestInit.checkbox then
+      pfQuestInit.checkbox:SetChecked(config_stage.arrow)
+    end
+    if pfQuestInit.querybox then
+      pfQuestInit.querybox:SetChecked(config_stage.query)
+    end
   end)
 
   if pfQuestTheme and pfQuestTheme.SkinPanel then
     pfQuestTheme.SkinPanel(pfQuestInit)
+    pfQuestTheme.HeaderStrip(pfQuestInit, 26)
   else
     pfUI.api.CreateBackdrop(pfQuestInit, nil, true, 0.85)
   end
 
+  -- close button
+  pfQuestInit.close = CreateFrame("Button", "pfQuestInitClose", pfQuestInit)
+  pfQuestInit.close:SetPoint("TOPRIGHT", -5, -5)
+  pfQuestInit.close:SetHeight(20)
+  pfQuestInit.close:SetWidth(20)
+  pfQuestInit.close.texture = pfQuestInit.close:CreateTexture("pfQuestInitCloseTex")
+  pfQuestInit.close.texture:SetTexture(pfQuestConfig.path .. "\\compat\\close")
+  pfQuestInit.close.texture:ClearAllPoints()
+  pfQuestInit.close.texture:SetPoint("TOPLEFT", pfQuestInit.close, "TOPLEFT", 4, -4)
+  pfQuestInit.close.texture:SetPoint("BOTTOMRIGHT", pfQuestInit.close, "BOTTOMRIGHT", -4, 4)
+  pfQuestInit.close.texture:SetVertexColor(1, 0.25, 0.25, 1)
+  pfUI.api.SkinButton(pfQuestInit.close, 1, 0.5, 0.5)
+  pfQuestInit.close:SetScript("OnClick", function()
+    if pfQuest_config then
+      pfQuest_config["welcome"] = "1"
+    end
+    this:GetParent():Hide()
+  end)
+
   -- welcome title
-  pfQuestInit.title = pfQuestInit:CreateFontString("Status", "LOW", "GameFontWhite")
-  pfQuestInit.title:SetPoint("TOP", pfQuestInit, "TOP", 0, -17)
-  pfQuestInit.title:SetJustifyH("LEFT")
+  pfQuestInit.title = pfQuestInit:CreateFontString("pfQuestInitTitle", "OVERLAY", "GameFontWhite")
+  pfQuestInit.title:SetPoint("TOP", pfQuestInit, "TOP", 0, -8)
+  pfQuestInit.title:SetJustifyH("CENTER")
+  pfQuestInit.title:SetFont(pfUI.font_default, 12, "OUTLINE")
   pfQuestInit.title:SetText(L["Please select your preferred |cff33ffccpf|cffffffffQuest|r mode:"])
 
   -- questing mode
@@ -823,39 +977,41 @@ do -- welcome/init popup dialog
     {
       caption = L["Simple Markers"],
       texture = "\\img\\init\\simple",
-      position = { "TOPLEFT", 10, -40 },
+      position = { "TOPLEFT", 15, -38 },
       tooltip = L["Only show cluster icons with summarized objective locations based on spawn points"],
     },
     {
       caption = L["Combined"],
       texture = "\\img\\init\\combined",
-      position = { "TOP", 0, -40 },
+      position = { "TOP", 0, -38 },
       tooltip = L["Show cluster icons with summarized locations and also display all spawn points of each quest objective"],
     },
     {
       caption = L["Spawn Points"],
       texture = "\\img\\init\\spawns",
-      position = { "TOPRIGHT", -10, -40 },
+      position = { "TOPRIGHT", -15, -38 },
       tooltip = L["Display all spawn points of each quest objective and hide summarized cluster icons."],
     },
   }
 
-  for i, button in pairs(buttons) do
-    pfQuestInit[i] = CreateFrame("Button", "pfQuestInitLeft", pfQuestInit)
+  local buttonNames = { "pfQuestInitSimple", "pfQuestInitCombined", "pfQuestInitSpawns" }
+  for i, button in ipairs(buttons) do
+    pfQuestInit[i] = CreateFrame("Button", buttonNames[i], pfQuestInit)
     pfQuestInit[i]:SetWidth(120)
     pfQuestInit[i]:SetHeight(160)
     pfQuestInit[i]:SetPoint(unpack(button.position))
     pfQuestInit[i]:SetID(i)
 
-    pfQuestInit[i].bg = pfQuestInit[i]:CreateTexture(nil, "NORMAL")
-    pfQuestInit[i].bg:SetWidth(200)
-    pfQuestInit[i].bg:SetHeight(200)
+    pfQuestInit[i].bg = pfQuestInit[i]:CreateTexture(nil, "ARTWORK")
+    pfQuestInit[i].bg:SetWidth(120)
+    pfQuestInit[i].bg:SetHeight(150)
     pfQuestInit[i].bg:SetPoint("CENTER", 0, 0)
     pfQuestInit[i].bg:SetTexture(pfQuestConfig.path .. button.texture)
 
-    pfQuestInit[i].caption = pfQuestInit:CreateFontString("Status", "LOW", "GameFontWhite")
-    pfQuestInit[i].caption:SetPoint("TOP", pfQuestInit[i], "BOTTOM", 0, -5)
-    pfQuestInit[i].caption:SetJustifyH("LEFT")
+    pfQuestInit[i].caption = pfQuestInit[i]:CreateFontString(nil, "OVERLAY", "GameFontWhite")
+    pfQuestInit[i].caption:SetPoint("TOP", pfQuestInit[i], "BOTTOM", 0, -6)
+    pfQuestInit[i].caption:SetJustifyH("CENTER")
+    pfQuestInit[i].caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
     pfQuestInit[i].caption:SetText(button.caption)
 
     pfUI.api.SkinButton(pfQuestInit[i])
@@ -877,7 +1033,7 @@ do -- welcome/init popup dialog
 
       GameTooltip:SetText(this.caption:GetText())
       GameTooltip:AddLine(buttons[this:GetID()].tooltip, 1, 1, 1, true)
-      GameTooltip:SetWidth(100)
+      GameTooltip:SetWidth(160)
       GameTooltip:Show()
     end)
 
@@ -891,18 +1047,19 @@ do -- welcome/init popup dialog
   end
 
   -- show arrows
-  pfQuestInit.checkbox = CreateFrame("CheckButton", nil, pfQuestInit, "UICheckButtonTemplate")
-  pfQuestInit.checkbox:SetPoint("BOTTOMLEFT", 10, 10)
+  pfQuestInit.checkbox = CreateFrame("CheckButton", "pfQuestInitArrowBox", pfQuestInit, "UICheckButtonTemplate")
+  pfQuestInit.checkbox:SetPoint("BOTTOMLEFT", 15, 36)
   pfQuestInit.checkbox:SetNormalTexture("")
   pfQuestInit.checkbox:SetPushedTexture("")
   pfQuestInit.checkbox:SetHighlightTexture("")
-  pfQuestInit.checkbox:SetWidth(22)
-  pfQuestInit.checkbox:SetHeight(22)
+  pfQuestInit.checkbox:SetWidth(20)
+  pfQuestInit.checkbox:SetHeight(20)
   pfUI.api.CreateBackdrop(pfQuestInit.checkbox, nil, true)
 
-  pfQuestInit.checkbox.caption = pfQuestInit:CreateFontString("Status", "LOW", "GameFontWhite")
+  pfQuestInit.checkbox.caption = pfQuestInit.checkbox:CreateFontString(nil, "OVERLAY", "GameFontWhite")
   pfQuestInit.checkbox.caption:SetPoint("LEFT", pfQuestInit.checkbox, "RIGHT", 5, 0)
   pfQuestInit.checkbox.caption:SetJustifyH("LEFT")
+  pfQuestInit.checkbox.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
   pfQuestInit.checkbox.caption:SetText(L["Show Navigation Arrow"])
   pfQuestInit.checkbox:SetScript("OnClick", function()
     config_stage.arrow = this:GetChecked()
@@ -912,7 +1069,7 @@ do -- welcome/init popup dialog
     GameTooltip_SetDefaultAnchor(GameTooltip, this)
     GameTooltip:SetText(L["Navigation Arrow"])
     GameTooltip:AddLine(L["Show navigation arrow that points you to the nearest quest location."], 1, 1, 1, true)
-    GameTooltip:SetWidth(100)
+    GameTooltip:SetWidth(160)
     GameTooltip:Show()
   end)
 
@@ -920,13 +1077,45 @@ do -- welcome/init popup dialog
     GameTooltip:Hide()
   end)
 
+  -- query completed quests checkbox
+  pfQuestInit.querybox = CreateFrame("CheckButton", "pfQuestInitQueryBox", pfQuestInit, "UICheckButtonTemplate")
+  pfQuestInit.querybox:SetPoint("BOTTOMLEFT", 15, 10)
+  pfQuestInit.querybox:SetNormalTexture("")
+  pfQuestInit.querybox:SetPushedTexture("")
+  pfQuestInit.querybox:SetHighlightTexture("")
+  pfQuestInit.querybox:SetWidth(20)
+  pfQuestInit.querybox:SetHeight(20)
+  pfUI.api.CreateBackdrop(pfQuestInit.querybox, nil, true)
+
+  pfQuestInit.querybox.caption = pfQuestInit.querybox:CreateFontString(nil, "OVERLAY", "GameFontWhite")
+  pfQuestInit.querybox.caption:SetPoint("LEFT", pfQuestInit.querybox, "RIGHT", 5, 0)
+  pfQuestInit.querybox.caption:SetJustifyH("LEFT")
+  pfQuestInit.querybox.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+  pfQuestInit.querybox.caption:SetText(L["Query Server for Completed Quests (/db query)"])
+  pfQuestInit.querybox:SetScript("OnClick", function()
+    config_stage.query = this:GetChecked()
+  end)
+
+  pfQuestInit.querybox:SetScript("OnEnter", function()
+    GameTooltip_SetDefaultAnchor(GameTooltip, this)
+    GameTooltip:SetText(L["Query Completed Quests"])
+    GameTooltip:AddLine(L["Queries the server for quests your character has already completed (/db query). Highly recommended so finished quests are hidden from your map."], 1, 1, 1, true)
+    GameTooltip:SetWidth(260)
+    GameTooltip:Show()
+  end)
+
+  pfQuestInit.querybox:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+
   -- save button
-  pfQuestInit.save = CreateFrame("Button", nil, pfQuestInit)
+  pfQuestInit.save = CreateFrame("Button", "pfQuestInitSave", pfQuestInit)
   pfQuestInit.save:SetWidth(100)
   pfQuestInit.save:SetHeight(24)
-  pfQuestInit.save:SetPoint("BOTTOMRIGHT", -10, 10)
+  pfQuestInit.save:SetPoint("BOTTOMRIGHT", -15, 10)
   pfQuestInit.save.text = pfQuestInit.save:CreateFontString("Caption", "LOW", "GameFontWhite")
   pfQuestInit.save.text:SetAllPoints(pfQuestInit.save)
+  pfQuestInit.save.text:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
   pfQuestInit.save.text:SetText(L["Save & Close"])
 
   pfUI.api.SkinButton(pfQuestInit.save)
@@ -956,9 +1145,14 @@ do -- welcome/init popup dialog
       pfQuest_config["arrow"] = "0"
     end
 
-    -- save welcome flag and reload
+    -- save welcome flag
     pfQuest_config["welcome"] = "1"
     pfQuest:ResetAll()
     pfQuestInit:Hide()
+
+    -- Run server query if requested
+    if config_stage.query and pfDatabase and pfDatabase.QueryServer then
+      pfDatabase:QueryServer()
+    end
   end)
 end

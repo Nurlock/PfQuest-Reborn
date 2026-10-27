@@ -209,6 +209,7 @@ pfQuest.queueCount = 0 -- Track queue size to avoid O(n) tsize() calls
 pfQuest.abandon = ""
 pfQuest.questlog = {}
 pfQuest.questlog_tmp = {}
+pfQuest.announcedQuests = {}
 
 -- Helper to add to queue with count tracking
 local function queueAdd(entry)
@@ -246,6 +247,7 @@ pfQuest:SetScript("OnEvent", function()
       pfQuest:AddQuestLogIntegration()
       pfQuest:AddWorldMapIntegration()
       this.lock = GetTime() + 10
+      pfQuest.lock = this.lock
     else
       return
     end
@@ -373,7 +375,15 @@ pfQuest:SetScript("OnUpdate", function()
           pfQuest_history[entry[2]] = nil
         else
           pfQuest_history[entry[2]] = { time(), UnitLevel("player") }
+          if not (pfQuest.lock and pfQuest.lock > GetTime()) and not pfQuest.announcedQuests[entry[2]] then
+            pfQuest.announcedQuests[entry[2]] = true
+            local comms = pfQuest.questieComms
+            if comms and comms.AnnounceQuest then
+              comms:AnnounceQuest(entry[2], entry[1], true)
+            end
+          end
         end
+        pfQuest.announcedQuests[entry[2]] = nil
 
         -- remove from collapsed tracking so the SavedVar doesn't accumulate
         -- stale questids from quests that were turned in or abandoned
@@ -449,9 +459,9 @@ pfQuest:SetScript("OnUpdate", function()
             end
           end
 
-          -- delete only when about to re-add (refresh), or when hiding is the
-          -- intended behavior (tracked-only mode + quest not watched)
-          if (eligible and verified) or (not eligible and method == 2) then
+          -- delete questgiver node on acceptance (NEW), when about to re-add (refresh),
+          -- or when hiding is the intended behavior (tracked-only mode + quest not watched)
+          if entry[4] == "NEW" or (eligible and verified) or (not eligible and method == 2) then
             local t0 = GetTime()
             pfMap:DeleteNode("PFQUEST", entry[1])
 
@@ -459,6 +469,11 @@ pfQuest:SetScript("OnUpdate", function()
             if entry[2] and pfDB["quests"]["loc"][entry[2]] and pfDB["quests"]["loc"][entry[2]].T then
               pfMap:DeleteNode("PFQUEST", pfDB["quests"]["loc"][entry[2]].T)
             end
+
+            if entry[4] == "NEW" and pfDatabase and pfDatabase.lastQuestGiversSet and entry[2] then
+              pfDatabase.lastQuestGiversSet[entry[2]] = nil
+            end
+
             pfQuest:Debug(format("|cffffff00TIMER DeleteNode(NEW/RELOAD): %.4fs", GetTime() - t0))
           end
 
@@ -545,11 +560,28 @@ function pfQuest:UpdateQuestlog()
         for i = 1, objectives, 1 do
           local text, _, done = GetQuestLogLeaderBoard(i, qlogid)
           sp[n + 1] = i
-          sp[n + 2] = done and "done" or "todo"
+          sp[n + 2] = text or (done and "done" or "todo")
           n = n + 2
         end
       end
       state = concat(sp, "", 1, n)
+
+      -- announce quest objective completion only on active transition (incomplete -> complete)
+      -- during gameplay, never for quests already complete on login/reload
+      if pfQuest.questlog[questid] then
+        local wasComplete = pfQuest.questlog[questid].isComplete
+        local isNowComplete = (complete == 1)
+        if isNowComplete and not wasComplete then
+          pfQuest.questlog[questid].isComplete = true
+          pfQuest.announcedQuests[questid] = true
+          local comms = pfQuest.questieComms
+          if comms and comms.AnnounceQuest then
+            comms:AnnounceQuest(questid, title, false)
+          end
+        else
+          pfQuest.questlog[questid].isComplete = isNowComplete
+        end
+      end
 
       -- Some WoW clients (e.g. group/dungeon/raid quests) set collapsed=true on the
       -- individual quest entry itself rather than (or in addition to) the zone header.
@@ -568,6 +600,7 @@ function pfQuest:UpdateQuestlog()
           qlogid = qlogid,
           state = state,
           collapsed = initCollapsed,
+          isComplete = (complete == 1),
         }
         change = true
       elseif pfQuest.questlog[questid].qlogid ~= qlogid then
@@ -641,6 +674,7 @@ function pfQuest:ResetAll()
   -- force reload all quests
   pfMap:DeleteNode("PFQUEST")
   pfQuest.questlog = {}
+  pfQuest.announcedQuests = {}
   pfQuest.updateQuestLog = true
   pfQuest.updateQuestGivers = true
   -- pfMap.nodes["PFQUEST"] is now empty; tell SearchQuests to start fresh

@@ -219,6 +219,16 @@ end
 local DIST_FAR = 99999999
 
 local function sortfunc(a, b)
+  -- For the same quest, gathering/source objectives must always be prioritized
+  -- before using the item at an itemreq target node.
+  if a[6] and b[6] and a[6] == b[6] then
+    local a_req = (a[3] and a[3].itemreq) and 1 or 0
+    local b_req = (b[3] and b[3].itemreq) and 1 or 0
+    if a_req ~= b_req then
+      return a_req < b_req
+    end
+  end
+
   if pfQuest_config["trackingmethod"] == 5 then
     -- Route tuples are { x, y, node, distance, watched, questid }
     -- Watched quests stay ahead of all local non-watched candidates in mode 5.

@@ -130,7 +130,8 @@ end
 -- based on: https://gist.github.com/Badgerati/3261142
 local len1, len2, cost, lev_best
 local levcache = {}
-local levcache_count = 0
+local levkeys = {}
+local levcache_idx = 1
 local LEVCACHE_MAX = 500
 
 -- Pre-allocate matrix for strings up to 100 chars (reused across calls)
@@ -188,26 +189,26 @@ local function lev(str1, str2, limit)
     end
 
     if limit and lev_best >= limit then
-      -- evict cache if too large before adding
-      if levcache_count >= LEVCACHE_MAX then
-        levcache = {}
-        levcache_count = 0
+      -- evict oldest entry if at capacity without wiping the table
+      local oldKey = levkeys[levcache_idx]
+      if oldKey then
+        levcache[oldKey] = nil
       end
+      levkeys[levcache_idx] = key
       levcache[key] = limit
-      levcache_count = levcache_count + 1
+      levcache_idx = (levcache_idx % LEVCACHE_MAX) + 1
       return limit
     end
   end
 
-  -- evict cache if too large before adding
-  if levcache_count >= LEVCACHE_MAX then
-    levcache = {}
-    levcache_count = 0
+  -- evict oldest entry if at capacity without wiping the table
+  local oldKey = levkeys[levcache_idx]
+  if oldKey then
+    levcache[oldKey] = nil
   end
-
-  -- return the levenshtein distance
+  levkeys[levcache_idx] = key
   levcache[key] = matrix[len1][len2]
-  levcache_count = levcache_count + 1
+  levcache_idx = (levcache_idx % LEVCACHE_MAX) + 1
   return matrix[len1][len2]
 end
 
@@ -313,6 +314,7 @@ pfDatabase.TrackQuestItemDependency = function(self, item, qid)
 end
 
 pfDatabase.itemlist:RegisterEvent("BAG_UPDATE")
+pfDatabase.itemlist:RegisterEvent("PLAYER_ENTERING_WORLD")
 pfDatabase.itemlist:SetScript("OnEvent", function()
   -- only set the deadline on the first event in a burst
   if not this.pending then
@@ -353,6 +355,10 @@ pfDatabase.itemlist:SetScript("OnUpdate", function()
       local link = GetContainerItemLink(bag, slot)
       local _, _, parse = strfind((link or ""), "(%d+):")
       if parse then
+        local item_id = tonumber(parse)
+        if item_id then
+          this.db[item_id] = true
+        end
         local item = GetItemInfo(parse)
         if item then
           this.db[item] = true
@@ -363,9 +369,14 @@ pfDatabase.itemlist:SetScript("OnUpdate", function()
 
   -- fill new item db with equipped items
   for i = 1, 19 do
-    if GetInventoryItemLink("player", i) then
-      local _, _, link = string.find(GetInventoryItemLink("player", i), "(item:%d+:%d+:%d+:%d+)")
-      local item = GetItemInfo(link)
+    local invLink = GetInventoryItemLink("player", i)
+    if invLink then
+      local _, _, link = string.find(invLink, "(item:%d+:%d+:%d+:%d+)")
+      local _, _, item_id = string.find(invLink, "item:(%d+)")
+      if item_id then
+        this.db[tonumber(item_id)] = true
+      end
+      local item = GetItemInfo(link or invLink)
       if item then
         this.db[item] = true
       end
@@ -675,6 +686,10 @@ function pfDatabase:BuildStaticRejectSet()
   local _, class = UnitClass("player")
   local prace = race and pfDatabase:GetBitByRace(race) or nil
   local pclass = class and pfDatabase:GetBitByClass(class) or nil
+
+  if not prace or not pclass then
+    return
+  end
 
   for id in pairs(quests) do
     -- missing loc name
@@ -1114,6 +1129,7 @@ function pfDatabase:SearchAreaTriggerID(id, meta, maps, prio)
   local maps = maps or {}
   local prio = prio or 1
 
+  local passed_title = meta and meta["title"]
   for _, data in pairs(areatrigger[id]["coords"]) do
     local x, y, zone = unpack(data)
 
@@ -1124,7 +1140,7 @@ function pfDatabase:SearchAreaTriggerID(id, meta, maps, prio)
       meta["spawnid"] = id
       meta["item"] = nil
 
-      meta["title"] = meta["quest"] or meta["item"] or meta["spawn"]
+      meta["title"] = passed_title or meta["quest"] or meta["item"] or meta["spawn"]
       meta["zone"] = zone
       meta["x"] = x
       meta["y"] = y
@@ -1138,6 +1154,7 @@ function pfDatabase:SearchAreaTriggerID(id, meta, maps, prio)
     end
   end
 
+  if meta then meta["title"] = passed_title end
   return maps
 end
 
@@ -1155,9 +1172,10 @@ function pfDatabase:SearchMobID(id, meta, maps, prio)
 
   -- hoist invariant fields outside the coord loop; these are the same for
   -- every spawn point of this mob so there is no need to set them per-coord
+  local passed_title = meta["title"]
   meta["spawn"] = pfDB.units.loc[id]
   meta["spawnid"] = id
-  meta["title"] = meta["quest"] or meta["item"] or meta["spawn"]
+  meta["title"] = passed_title or meta["quest"] or meta["item"] or meta["spawn"]
   meta["level"] = units[id]["lvl"] or UNKNOWN
   meta["spawntype"] = pfQuest_Loc["Unit"]
   -- Reforged: who this unit belongs to, for the map tooltip (issue #31). Set
@@ -1189,6 +1207,7 @@ function pfDatabase:SearchMobID(id, meta, maps, prio)
     end
   end
 
+  meta["title"] = passed_title
   return maps
 end
 
@@ -1383,10 +1402,11 @@ function pfDatabase:SearchZoneID(id, meta, maps, prio)
     maps[zone] = maps[zone] and maps[zone] + prio or prio
 
     meta = meta or {}
+    local passed_title = meta["title"]
     meta["spawn"] = pfDB.zones.loc[id] or UNKNOWN
     meta["spawnid"] = id
 
-    meta["title"] = meta["quest"] or meta["item"] or meta["spawn"]
+    meta["title"] = passed_title or meta["quest"] or meta["item"] or meta["spawn"]
     meta["zone"] = zone
     meta["level"] = "N/A"
     meta["spawntype"] = pfQuest_Loc["Area/Zone"]
@@ -1395,6 +1415,7 @@ function pfDatabase:SearchZoneID(id, meta, maps, prio)
     meta["y"] = y
 
     pfMap:AddNode(meta)
+    meta["title"] = passed_title
     return maps
   end
 
@@ -1422,10 +1443,10 @@ function pfDatabase:SearchObjectSkill(id)
   end
   local skill, caption = nil, nil
 
-  if pfDB["meta"]["herbs"][-id] then
+  if pfDB["meta"] and pfDB["meta"]["herbs"] and pfDB["meta"]["herbs"][-id] then
     skill = pfDB["meta"]["herbs"][-id]
     caption = pfQuest_Loc["Herbalism"]
-  elseif pfDB["meta"]["mines"][-id] then
+  elseif pfDB["meta"] and pfDB["meta"]["mines"] and pfDB["meta"]["mines"][-id] then
     skill = pfDB["meta"]["mines"][-id]
     caption = pfQuest_Loc["Mining"]
   end
@@ -1446,9 +1467,10 @@ function pfDatabase:SearchObjectID(id, meta, maps, prio)
   meta = meta or {}
 
   -- hoist invariant fields outside the coord loop
+  local passed_title = meta["title"]
   meta["spawn"] = pfDB.objects.loc[id]
   meta["spawnid"] = id
-  meta["title"] = meta["quest"] or meta["item"] or meta["spawn"]
+  meta["title"] = passed_title or meta["quest"] or meta["item"] or meta["spawn"]
   meta["level"] = skill and string.format("%s [%s]", skill, caption) or nil
   meta["spawntype"] = pfQuest_Loc["Object"]
   -- same reason as SearchMobID above: always assign, so a unit visited earlier
@@ -1471,6 +1493,7 @@ function pfDatabase:SearchObjectID(id, meta, maps, prio)
     end
   end
 
+  meta["title"] = passed_title
   return maps
 end
 
@@ -1628,6 +1651,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
 
   meta["questid"] = id
   meta["quest"] = pfDB.quests.loc[id] and pfDB.quests.loc[id].T
+  meta["title"] = meta["title"] or meta["quest"]
   meta["qlvl"] = quests[id]["lvl"]
   meta["qmin"] = quests[id]["min"]
 
@@ -1745,36 +1769,122 @@ function pfDatabase:SearchQuestID(id, meta, maps)
       for i = 1, objectives, 1 do
         local text, type, done = GetQuestLogLeaderBoard(i, meta["qlogid"])
 
-        -- spawn data
-        if type == "monster" then
-          local _, _, monsterName, objNum, objNeeded = strfind(text or "", pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
-          if monsterName then
-            local status = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
-            if q_obj["U"] then
-              for _, uid in ipairs(q_obj["U"]) do
-                if pfDB.units.loc[uid] == monsterName then
-                  parse_obj["U"][uid] = status
-                end
-              end
-            end
-            if q_obj["O"] then
-              for _, oid in ipairs(q_obj["O"]) do
-                if pfDB.objects.loc[oid] == monsterName then
-                  parse_obj["O"][oid] = status
-                end
-              end
+        local objName, objNum, objNeeded
+        if text then
+          -- generic match: "<name>: <num>/<needed>"
+          local _, _, n, cur, req = strfind(text, "^(.-)%s*:%s*([%d]+)%s*/%s*([%d]+)%s*$")
+          if n and cur and req then
+            objName = n
+            objNum = cur
+            objNeeded = req
+            -- strip trailing " slain" if present (from QUEST_MONSTERS_KILLED)
+            local _, _, stripped = strfind(objName, "^(.-)%s+slain$")
+            if stripped then objName = stripped end
+          else
+            -- fallback to standard Blizzard patterns
+            local _, _, mn, mc, mr = strfind(text, pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
+            if mn then
+              objName, objNum, objNeeded = mn, mc, mr
+            else
+              local _, _, on, oc, orq = strfind(text, pfUI.api.SanitizePattern(QUEST_OBJECTS_FOUND))
+              if on then objName, objNum, objNeeded = on, oc, orq end
             end
           end
         end
 
-        -- item data
-        if type == "item" then
-          local _, _, itemName, objNum, objNeeded = strfind(text or "", pfUI.api.SanitizePattern(QUEST_OBJECTS_FOUND))
-          if itemName and q_obj["I"] then
-            local status = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
+        local status = objComplete(objNum, objNeeded, done) and "DONE" or "PROG"
+
+        -- match against units
+        if q_obj["U"] then
+          for _, uid in ipairs(q_obj["U"]) do
+            local locName = pfDB.units.loc[uid]
+            if locName and (locName == objName or (objName and strfind(objName, locName, 1, true)) or (text and strfind(text, locName, 1, true))) then
+              parse_obj["U"][uid] = status
+            end
+          end
+        end
+
+        -- match against objects
+        if q_obj["O"] then
+          for _, oid in ipairs(q_obj["O"]) do
+            local locName = pfDB.objects.loc[oid]
+            if locName and (locName == objName or (objName and strfind(objName, locName, 1, true)) or (text and strfind(text, locName, 1, true))) then
+              parse_obj["O"][oid] = status
+            end
+          end
+        end
+
+        -- match against items
+        if q_obj["I"] then
+          for _, iid in ipairs(q_obj["I"]) do
+            local locName = pfDB.items.loc[iid]
+            if locName and (locName == objName or (objName and strfind(objName, locName, 1, true)) or (text and strfind(text, locName, 1, true))) then
+              parse_obj["I"][iid] = status
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- Reforged: Questie party quest objectives completion parsing
+  if meta and meta["addon"] == "PARTY" and meta["partyMember"] and pfQuest and pfQuest.partyQuests then
+    local pQuests = pfQuest.partyQuests[meta["partyMember"]]
+    local pQuest = pQuests and pQuests[id]
+    if pQuest and pQuest.objectives and quests[id] and quests[id]["obj"] then
+      local q_obj = quests[id]["obj"]
+      for _, obj in pairs(pQuest.objectives) do
+        local ful = tonumber(obj.fulfilled or obj.ful or obj.Collected or obj.numFulfilled) or 0
+        local req = tonumber(obj.required or obj.req or obj.Needed or obj.numRequired) or 1
+        local isDone = (obj.finished ~= nil and obj.finished)
+          or (obj.fin ~= nil and obj.fin)
+          or (obj.Finished ~= nil and obj.Finished)
+          or (obj.Completed ~= nil and obj.Completed)
+          or (ful >= req)
+        local status = isDone and "DONE" or "PROG"
+        local objType = obj.type or obj.typ or obj.Type or "m"
+        if type(objType) == "string" then
+          local low = string.lower(objType)
+          if low == "monster" or low == "creature" or low == "m" then
+            objType = "m"
+          elseif low == "item" or low == "i" then
+            objType = "i"
+          elseif low == "object" or low == "gameobject" or low == "o" then
+            objType = "o"
+          end
+        else
+          objType = "m"
+        end
+
+        local objId = obj.id or obj.Id
+        if objId and objId > 0 then
+          if objType == "m" and parse_obj["U"] then
+            parse_obj["U"][objId] = status
+          elseif objType == "i" and parse_obj["I"] then
+            parse_obj["I"][objId] = status
+          elseif objType == "o" and parse_obj["O"] then
+            parse_obj["O"][objId] = status
+          end
+        end
+
+        local text = obj.text or obj.desc or obj.name or obj.Description or obj.Text
+        if text and text ~= "" then
+          if objType == "m" and q_obj["U"] and pfDB.units and pfDB.units.loc then
+            for _, uid in ipairs(q_obj["U"]) do
+              if pfDB.units.loc[uid] and (strfind(text, pfDB.units.loc[uid], 1, true) or strfind(pfDB.units.loc[uid], text, 1, true)) then
+                parse_obj["U"][uid] = status
+              end
+            end
+          elseif objType == "i" and q_obj["I"] and pfDB.items and pfDB.items.loc then
             for _, iid in ipairs(q_obj["I"]) do
-              if pfDB.items.loc[iid] == itemName then
+              if pfDB.items.loc[iid] and (strfind(text, pfDB.items.loc[iid], 1, true) or strfind(pfDB.items.loc[iid], text, 1, true)) then
                 parse_obj["I"][iid] = status
+              end
+            end
+          elseif objType == "o" and q_obj["O"] and pfDB.objects and pfDB.objects.loc then
+            for _, oid in ipairs(q_obj["O"]) do
+              if pfDB.objects.loc[oid] and (strfind(text, pfDB.objects.loc[oid], 1, true) or strfind(pfDB.objects.loc[oid], text, 1, true)) then
+                parse_obj["O"][oid] = status
               end
             end
           end
@@ -1808,7 +1918,11 @@ function pfDatabase:SearchQuestID(id, meta, maps)
               skip_objects[math.abs(object)] = true
 
               pfDatabase:TrackQuestItemDependency(requirement, id)
-              if pfDatabase.itemlist.db[requirement] then
+              pfDatabase:TrackQuestItemDependency(item, id)
+              local hasItem = pfDatabase.itemlist.db[requirement] or pfDatabase.itemlist.db[item]
+              local isDone = not parse_obj["I"][item] or parse_obj["I"][item] == "DONE"
+              local showItemReq = (not meta["qlogid"]) or (hasItem and isDone)
+              if showItemReq then
                 maps = pfDatabase:SearchObjectID(math.abs(object), meta, maps)
               end
             elseif object > 0 then
@@ -1822,17 +1936,23 @@ function pfDatabase:SearchQuestID(id, meta, maps)
               skip_creatures[math.abs(object)] = true
 
               pfDatabase:TrackQuestItemDependency(requirement, id)
-              if pfDatabase.itemlist.db[requirement] then
+              pfDatabase:TrackQuestItemDependency(item, id)
+              local hasItem = pfDatabase.itemlist.db[requirement] or pfDatabase.itemlist.db[item]
+              local isDone = not parse_obj["I"][item] or parse_obj["I"][item] == "DONE"
+              local showItemReq = (not meta["qlogid"]) or (hasItem and isDone)
+              if showItemReq then
                 maps = pfDatabase:SearchMobID(math.abs(object), meta, maps)
               end
             end
           end
         end
       end
+      meta.itemreq = nil
     end
 
     -- units
     if quests[id]["obj"]["U"] then
+      meta.itemreq = nil
       for _, unit in pairs(quests[id]["obj"]["U"]) do
         if not parse_obj["U"][unit] or parse_obj["U"][unit] ~= "DONE" then
           if not skip_creatures or not skip_creatures[unit] then
@@ -1847,6 +1967,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
 
     -- objects
     if quests[id]["obj"]["O"] then
+      meta.itemreq = nil
       for _, object in pairs(quests[id]["obj"]["O"]) do
         if not parse_obj["O"][object] or parse_obj["O"][object] ~= "DONE" then
           if not skip_objects or not skip_objects[object] then
@@ -1862,6 +1983,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
 
     -- items
     if quests[id]["obj"]["I"] then
+      meta.itemreq = nil
       for _, item in pairs(quests[id]["obj"]["I"]) do
         if not parse_obj["I"][item] or parse_obj["I"][item] ~= "DONE" then
           meta = meta or {}
@@ -1875,6 +1997,10 @@ function pfDatabase:SearchQuestID(id, meta, maps)
           maps = pfDatabase:SearchItemID(item, meta, maps)
         end
       end
+      meta["item"] = nil
+      meta["itemid"] = nil
+      meta["droprate"] = nil
+      meta["sellcount"] = nil
     end
 
     -- areatrigger
@@ -1907,7 +2033,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
       if meta.quest and pfMap.unifiedcache[meta.quest] and pfMap.unifiedcache[meta.quest][map] then
         for hash, data in pairs(pfMap.unifiedcache[meta.quest][map]) do
           meta = data.meta
-          meta["title"] = meta["quest"]
+          meta["title"] = meta["title"] or meta["quest"]
           meta["cluster"] = true
           meta["zone"] = map
 
@@ -2139,9 +2265,22 @@ function pfDatabase:SearchQuests(meta, maps)
   for id in pairs(currentSet) do
     if not self.lastQuestGiversSet[id] then
       -- set metadata
-      meta["quest"] = (pfDB.quests.loc[id] and pfDB.quests.loc[id].T) or UNKNOWN
+      local qtitle = (pfDB.quests.loc[id] and pfDB.quests.loc[id].T) or UNKNOWN
+      meta["quest"] = qtitle
+      meta["title"] = qtitle
       meta["questid"] = id
       meta["texture"] = pfQuestConfig.path .. "\\img\\available_c"
+
+      meta["spawn"] = nil
+      meta["spawnid"] = nil
+      meta["description"] = nil
+      meta["level"] = nil
+      meta["spawntype"] = nil
+      meta["faction"] = nil
+      meta["zone"] = nil
+      meta["x"] = nil
+      meta["y"] = nil
+      meta["respawn"] = nil
 
       meta["qlvl"] = quests[id]["lvl"]
       meta["qmin"] = quests[id]["min"]
