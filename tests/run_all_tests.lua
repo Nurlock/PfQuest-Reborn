@@ -10,6 +10,7 @@ local suites = {
   "tests/test_performance_guards.lua",
   "tests/test_config_dependencies.lua",
   "tests/test_wizard_lifecycle.lua",
+  "tests/test_party_sync_and_tooltips.lua",
 }
 
 print("======================================================================")
