@@ -241,7 +241,20 @@ env.IsQuestCompletable = function() return true end
 env.CompleteQuest = function() completed = true end
 env.pfQuestAutomation.OnEvent(nil, "QUEST_PROGRESS")
 assert(completed == true, "CompleteQuest must be called when quest is completable")
-print("  ✓ PASS: Quest automation event triggers verified")
+
+-- Gossip available quests stride and commission skip
+local selectedGossip = nil
+env.SelectGossipAvailableQuest = function(index) selectedGossip = index end
+env.GetNumGossipAvailableQuests = function() return 2 end
+-- 3.3.5a stride 5: title, level, isTrivial, isDaily, isRepeatable
+env.GetGossipAvailableQuests = function()
+  return "Commission for Stormwind", 20, false, false, false,
+         "Hero's Call", 22, false, false, false
+end
+env.pfQuest_config["epochSkipCommissionQuests"] = "1"
+env.pfQuestAutomation.OnEvent(nil, "GOSSIP_SHOW")
+assert(selectedGossip == 2, "Must skip commission quest and select index 2: got " .. tostring(selectedGossip))
+print("  ✓ PASS: Quest automation event triggers and gossip stride parsing verified")
 
 print("[TEST] Verifying Quest Chat Announcements...")
 load_file("announce.lua")
