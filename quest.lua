@@ -267,6 +267,9 @@ pfQuest:SetScript("OnEvent", function()
     end
   elseif event == "PLAYER_LEVEL_UP" or event == "PLAYER_ENTERING_WORLD" then
     pfQuest.updateQuestGivers = true
+    if event == "PLAYER_ENTERING_WORLD" then
+      pfQuest.needsGroupSync = true
+    end
   else
     pfQuest.updateQuestLog = true
   end
@@ -519,6 +522,12 @@ pfQuest:SetScript("OnUpdate", function()
       this.updateQuestGivers = true
       this.needsQuestGiverUpdate = false
     end
+    if pfQuest.needsGroupSync then
+      pfQuest.needsGroupSync = nil
+      if pfQuest.questieComms and pfQuest.questieComms.SyncOnLoginOrReload then
+        pfQuest.questieComms:SyncOnLoginOrReload()
+      end
+    end
   end
 end)
 
@@ -688,9 +697,8 @@ function pfQuest:ResetAll()
     if not pfQuest.questieComms:IsEnabled() or pfQuest_config["showpartyobjectives"] == "0" then
       pfQuest.questieComms:ClearAllPartyData()
     elseif pfQuest.questieComms:IsInGroup() then
+      pfQuest.needsGroupSync = true
       pfQuest.questieComms:RequestFullQuestList()
-      pfQuest.questieComms:BroadcastFullQuestList()
-      pfQuest.questieComms:SendVisibilitySnapshot()
     end
   end
 end
