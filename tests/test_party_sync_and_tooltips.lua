@@ -58,6 +58,23 @@ env.UnitName = function(u)
   return "PartyFriend"
 end
 
+env.GetQuestLogTitle = function(index)
+  if index == 1 then return "Defias Hunt", 10, "Elite", false, false, 0 end
+  return nil
+end
+env.pfQuestCompat = env.pfQuestCompat or {}
+env.pfQuestCompat.GetQuestLogTitle = env.GetQuestLogTitle
+env.GetNumQuestLeaderBoards = function(index)
+  if index == 1 then return 1 end
+  return 0
+end
+env.GetQuestLogLeaderBoard = function(objIndex, qlogIndex)
+  if qlogIndex == 1 and objIndex == 1 then
+    return "Defias Bandit: 3/10", "monster", false
+  end
+  return nil
+end
+
 -- Setup dummy quest in DB
 env.pfDB = env.pfDB or {}
 env.pfDB.quests = env.pfDB.quests or { loc = {}, data = {} }
@@ -222,5 +239,60 @@ end
 assert(foundTurnIn, "Quest ender NPC tooltip must display 'Ready for turn-in'")
 assert(not foundBandit, "Quest ender NPC tooltip must NOT dump unrelated kill objectives (Defias Bandit)")
 print("  ✓ PASS: Quest ender NPC accurately displays party turn-in readiness without objective bleed")
+
+print("[TEST] 5. Verifying shared quest tooltip displays party progress when quest title already present...")
+local sharedTip = env.CreateFrame("Frame", "SharedTooltip")
+sharedTip.lines = {
+  "Defias Bandit",
+  "Level 4",
+  "Defias Hunt",
+  "  Defias Bandit: 3/10"
+}
+sharedTip.AddLine = function(self, text, r, g, b)
+  table.insert(self.lines, text)
+end
+sharedTip.NumLines = function(self) return #self.lines end
+sharedTip.GetName = function(self) return "SharedTooltip" end
+-- Expose text lines via _G naming convention expected by TooltipHasQuest
+for i, line in ipairs(sharedTip.lines) do
+  env["SharedTooltipTextLeft" .. i] = { GetText = function() return line end }
+end
+
+comms:ShowWorldTooltip("Defias Bandit", sharedTip)
+
+local foundPartyLine = false
+local headerCount = 0
+for _, line in ipairs(sharedTip.lines) do
+  if string.find(line, "PartyFriend") and string.find(line, "10/10") then
+    foundPartyLine = true
+  end
+  if string.find(line, "%[!%] Defias Hunt") then
+    headerCount = headerCount + 1
+  end
+end
+assert(foundPartyLine, "Party progress must be shown even when quest title was already in tooltip")
+assert(headerCount == 0, "Duplicate quest header must NOT be added if quest title was already in tooltip")
+print("  ✓ PASS: Shared quest tooltip appends party progress without duplicating quest header")
+
+print("[TEST] 6. Verifying local player quests are indexed on the very first hover...")
+-- Clear partyQuests["LocalPlayer"] to simulate first hover state
+env.pfQuest.partyQuests["LocalPlayer"] = nil
+local firstHoverTip = env.CreateFrame("Frame", "FirstHoverTip")
+firstHoverTip.lines = {}
+firstHoverTip.AddLine = function(self, text, r, g, b)
+  table.insert(self.lines, text)
+end
+firstHoverTip.NumLines = function(self) return #self.lines end
+firstHoverTip.GetName = function(self) return "FirstHoverTip" end
+
+comms:ShowWorldTooltip("Defias Bandit", firstHoverTip)
+local foundLocalOnFirstHover = false
+for _, line in ipairs(firstHoverTip.lines) do
+  if string.find(line, "LocalPlayer") then
+    foundLocalOnFirstHover = true
+  end
+end
+assert(foundLocalOnFirstHover, "Local player quests must be indexed into party lookups on very first hover")
+print("  ✓ PASS: Local player quests indexed immediately on initial hover")
 
 print("\ntest_party_sync_and_tooltips PASSED successfully!")
