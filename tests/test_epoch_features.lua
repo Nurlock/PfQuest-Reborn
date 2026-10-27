@@ -184,4 +184,26 @@ env.pfQuestLoot.Hide()
 assert(env.pfQuestLootPanel:IsShown() == false, "Loot panel must be hidden after Hide")
 print("  ✓ PASS: Rare Loot Panel verified")
 
+print("[TEST] Verifying Nameplate Quest Icons...")
+load_file("nameplates.lua")
+assert(env.pfQuestNameplates ~= nil, "pfQuestNameplates must be defined")
+assert(env.SLASH_PFQUESTNP1 == "/pfqnp", "SLASH_PFQUESTNP1 must be /pfqnp")
+
+-- Mock quest log entry for an active quest targeting Defias Captain
+env.GetNumQuestLogEntries = function() return 1 end
+env.GetQuestLogTitle = function(index)
+  return "Captain's Fate", 20, "Elite", 1, false, false, nil, false
+end
+env.GetNumQuestLeaderBoards = function(index) return 1 end
+env.GetQuestLogLeaderBoard = function(i, qid)
+  return "Defias Captain slain: 0/1", "monster", false
+end
+
+env.pfDB.quests.data[400] = { lvl = 20, min = 15, obj = { U = { 6001 } } }
+env.pfDB.quests.loc[400] = { T = "Captain's Fate" }
+
+env.pfQuestNameplates.Scan()
+assert(env.pfQuestNameplates.questObjectives["Defias Captain"] ~= nil, "Defias Captain must have a quest icon")
+print("  ✓ PASS: Nameplate quest objectives scanned and mapped")
+
 print("test_epoch_features PASSED successfully!")
