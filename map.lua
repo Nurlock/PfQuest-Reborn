@@ -1287,6 +1287,40 @@ function pfMap:NodeEnter()
     pfMap:ShowTooltip(meta, tooltip)
   end
 
+  local itemStartMeta = nil
+  for title, meta in pairs(this.node) do
+    if meta.QTYPE == "ITEM_START" and meta.dropsources_levels then
+      itemStartMeta = meta
+      break
+    end
+  end
+
+  if itemStartMeta and itemStartMeta.dropsources_levels then
+    tooltip:AddLine(" ")
+    tooltip:AddLine(pfQuest_Loc["Drops from:"] or "Drops from:", 0.8, 0.8, 0.8)
+
+    local sorted_sources = {}
+    for source_name, data in pairs(itemStartMeta.dropsources_levels) do
+      table.insert(sorted_sources, {name = source_name, level = data.level, chance = data.chance or 0})
+    end
+
+    table.sort(sorted_sources, function(a, b)
+      return a.chance > b.chance
+    end)
+
+    local count = 0
+    for _, source in ipairs(sorted_sources) do
+      count = count + 1
+      if count <= 5 then
+        tooltip:AddLine("  " .. source.name .. " (" .. source.level .. ") - " .. source.chance .. "%", 1, 1, 1)
+      end
+    end
+
+    if table.getn(sorted_sources) > 5 then
+      tooltip:AddLine("  (+" .. (table.getn(sorted_sources) - 5) .. " more)", 0.7, 0.7, 0.7)
+    end
+  end
+
   -- add tooltip help if setting is enabled
   if pfQuest_config["tooltiphelp"] == "1" then
     local text = pfQuest_Loc["Use <Shift>-Click To Remove Nodes"]
