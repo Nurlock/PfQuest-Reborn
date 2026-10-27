@@ -11,6 +11,7 @@ local suites = {
   "tests/test_config_dependencies.lua",
   "tests/test_wizard_lifecycle.lua",
   "tests/test_party_sync_and_tooltips.lua",
+  "tests/test_epoch_features.lua",
 }
 
 local repoRoot = nil

@@ -2163,6 +2163,68 @@ function pfDatabase:QuestFilter(id, plevel, pclass, prace)
     return
   end
 
+  local questLoc = pfDB["quests"]["loc"] or pfDB["quests"]["enUS"]
+  local title = questLoc and questLoc[id] and questLoc[id].T
+
+  -- hide PvP quests
+  if (pfQuest_config["epochHidePvPQuests"] == "1" or pfQuest_config["hidepvpquests"] == "1") and title then
+    if not string.find(title, "Alteraci Shilling") and (
+      string.find(title, "Warsong") or
+      string.find(title, "Arathi") or
+      string.find(title, "Alterac") or
+      string.find(title, "Battleground") or
+      string.find(title, "Call to Skirmish")
+    ) then
+      return
+    end
+  end
+
+  -- hide Commission quests
+  if (pfQuest_config["epochHideCommissionQuests"] == "1" or pfQuest_config["hidecommission"] == "1") and title then
+    if string.find(title, "Commission for") then
+      return
+    end
+  end
+
+  -- hide Coin quests
+  if (pfQuest_config["epochHideCoinQuests"] == "1" or pfQuest_config["hidecoinquests"] == "1") then
+    if id >= 26127 and id <= 26166 then
+      return
+    end
+  end
+
+  -- hide Donation quests
+  if (pfQuest_config["epochHideDonationQuests"] == "1" or pfQuest_config["hidedonationquests"] == "1") and title then
+    if (
+      string.find(title, "A Donation of Wool") or
+      string.find(title, "A Donation of Silk") or
+      string.find(title, "A Donation of Mageweave") or
+      string.find(title, "A Donation of Runecloth") or
+      string.find(title, "Additional Runecloth")
+    ) then
+      return
+    end
+  end
+
+  -- hide chicken quests
+  if (pfQuest_config["epochHideChickenQuests"] == "1" or pfQuest_config["hidechickenquests"] == "1") and title then
+    if string.find(title, "CLUCK!") then
+      return
+    end
+  end
+
+  -- hide Felwood flowers
+  if (pfQuest_config["epochHideFelwoodFlowers"] == "1" or pfQuest_config["hidefelwoodflowers"] == "1") and title then
+    if (
+      title == "Corrupted Windblossom" or
+      title == "Corrupted Whipper Root" or
+      title == "Corrupted Songflower" or
+      title == "Corrupted Night Dragon"
+    ) then
+      return
+    end
+  end
+
   return true
 end
 
@@ -2738,12 +2800,28 @@ local function OnQuestQueryComplete(self)
       pfJournal.dirty = true
     end
 
+    -- Auto-close mutually exclusive quests
+    local closed = 0
+    local quests = pfDB["quests"]["data"]
+    for qID in pairs(pfQuest_history) do
+      local qData = quests[qID]
+      if qData and qData["close"] then
+        for _, closedQuestID in ipairs(qData["close"]) do
+          if not pfQuest_history[closedQuestID] then
+            pfQuest_history[closedQuestID] = { time(), UnitLevel("player") }
+            closed = closed + 1
+          end
+        end
+      end
+    end
+
     -- Reset all quest markers after processing completed quests
     pfQuest:ResetAll()
 
+    local extraMsg = closed > 0 and string.format(" (%d mutually exclusive auto-closed)", closed) or ""
     DEFAULT_CHAT_FRAME:AddMessage(string.format(
-      "|cff33ffccpf|cffffffffQuest|cff33ffcc:|r server query complete -- %d quests flagged as completed (%d new).",
-      total, new))
+      "|cff33ffccpf|cffffffffQuest|cff33ffcc:|r server query complete -- %d quests flagged as completed (%d new)%s.",
+      total, new, extraMsg))
   elseif completedQuests == nil then
     print("Error: GetQuestsCompleted() returned nil.")
   else

@@ -1234,6 +1234,19 @@ function pfMap:NodeEnter()
     0.8
   )
   tooltip:AddDoubleLine(pfQuest_Loc["Level"] .. ":", (this.level or UNKNOWN), 0.8, 0.8, 0.8, 1, 1, 1)
+  if this.spawnid then
+    local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.spawnid]
+    if unitData and unitData.rnk then
+      local rankText = nil
+      if unitData.rnk == 1 then rankText = pfQuest_Loc["Elite"] or "Elite"
+      elseif unitData.rnk == 2 then rankText = pfQuest_Loc["Rare Elite"] or "Rare Elite"
+      elseif unitData.rnk == 3 then rankText = pfQuest_Loc["Boss"] or "Boss"
+      elseif unitData.rnk == 4 then rankText = pfQuest_Loc["Rare"] or "Rare" end
+      if rankText then
+        tooltip:AddDoubleLine(pfQuest_Loc["Classification"] or "Classification" .. ":", rankText, 0.8, 0.8, 0.8, 1, 1, 0)
+      end
+    end
+  end
   -- Reforged: a number of rares belong to one faction and simply cannot be
   -- fought by the other, which sent players across a zone after a mob they were
   -- never going to be able to attack (issue #31). pfQuest already knows this: it
