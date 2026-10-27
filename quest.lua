@@ -128,7 +128,7 @@ ExpandQuestHeader = function(index)
 end
 
 if client >= 30300 then
-  pfQuest.dburl = "https://www.wowhead.com/wotlk/quest="
+  pfQuest.dburl = "https://epochhead.com/?quest="
 elseif client >= 20400 then
   pfQuest.dburl = "https://www.wowhead.com/tbc/quest="
 else

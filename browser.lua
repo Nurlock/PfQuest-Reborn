@@ -91,6 +91,17 @@ local function ResultButtonEnter()
         GameTooltip:AddDoubleLine(pfQuest_Loc["Level"], unitData.lvl, 1, 1, 0.8, 1, 1, 1)
       end
 
+      if unitData and unitData.rnk then
+        local rankText = nil
+        if unitData.rnk == 1 then rankText = pfQuest_Loc["Elite"] or "Elite"
+        elseif unitData.rnk == 2 then rankText = pfQuest_Loc["Rare Elite"] or "Rare Elite"
+        elseif unitData.rnk == 3 then rankText = pfQuest_Loc["Boss"] or "Boss"
+        elseif unitData.rnk == 4 then rankText = pfQuest_Loc["Rare"] or "Rare" end
+        if rankText then
+          GameTooltip:AddDoubleLine(pfQuest_Loc["Classification"] or "Classification", rankText, 0.8, 0.8, 0.8, 1, 1, 0)
+        end
+      end
+
       local reactionStringA = "|c00ff0000" .. pfQuest_Loc["Hostile"] .. "|r"
       local reactionStringH = "|c00ff0000" .. pfQuest_Loc["Hostile"] .. "|r"
       if unitData and unitData.fac then
