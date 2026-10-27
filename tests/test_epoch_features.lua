@@ -155,4 +155,33 @@ end
 assert(foundItemStart, "ITEM_START node must be created for item-started quest")
 print("  ✓ PASS: ITEM_START node created with drop source metadata")
 
+print("[TEST] Verifying Rare Loot Panel logic...")
+load_file("lootpanel.lua")
+assert(env.pfQuestLoot ~= nil, "pfQuestLoot must be defined")
+assert(env.pfQuestEpochLoot == env.pfQuestLoot, "pfQuestEpochLoot alias must exist")
+
+-- Mock GetItemInfo for loot test
+env.GetItemInfo = function(id)
+  if id == 5001 then
+    return "Captain's Orders", "link", 1, 1, 1, "Quest"
+  elseif id == 6002 then
+    return "Rare Dagger", "link", 3, 1, 1, "Weapon"
+  end
+  return "Unknown Item", "link", 1, 1, 1, "Misc"
+end
+env.GetItemIcon = function() return "Interface\\Icons\\INV_Sword_04" end
+
+env.pfDB.units.data[7001] = { lvl = 50, rnk = 2 }
+env.pfDB.units.loc[7001] = "Rare Mob"
+env.pfDB.items.data[6002] = { U = { [7001] = 25 } }
+env.pfDB.items.loc[6002] = "Rare Dagger"
+
+assert(env.pfQuestLoot.HasDrops(7001) == true, "Rare mob 7001 must report drops")
+local mockFrame = { spawnid = 7001, spawn = "Rare Mob", level = 50, spawntype = "Monster" }
+env.pfQuestLoot.ShowPinned(mockFrame)
+assert(env.pfQuestLootPanel:IsShown() == true, "Loot panel must be visible after ShowPinned")
+env.pfQuestLoot.Hide()
+assert(env.pfQuestLootPanel:IsShown() == false, "Loot panel must be hidden after Hide")
+print("  ✓ PASS: Rare Loot Panel verified")
+
 print("test_epoch_features PASSED successfully!")

@@ -1145,6 +1145,14 @@ function pfMap:DeleteNode(addon, title)
 end
 
 function pfMap:NodeClick()
+  if IsAltKeyDown() and this.spawnid and pfQuestLoot and pfQuestLoot.ShowPinned then
+    local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.spawnid]
+    if unitData and unitData["rnk"] then
+      pfQuestLoot.ShowPinned(this)
+      return
+    end
+  end
+
   if IsShiftKeyDown() then
     if this.questid and this.texture and this.layer < 5 then
       -- mark questnode as done
@@ -1244,6 +1252,9 @@ function pfMap:NodeEnter()
       elseif unitData.rnk == 4 then rankText = pfQuest_Loc["Rare"] or "Rare" end
       if rankText then
         tooltip:AddDoubleLine(pfQuest_Loc["Classification"] or "Classification" .. ":", rankText, 0.8, 0.8, 0.8, 1, 1, 0)
+      end
+      if pfQuestLoot and pfQuestLoot.HasDrops and pfQuestLoot.HasDrops(this.spawnid) then
+        tooltip:AddLine(pfQuest_Loc["Alt-Click To Show Item Drops"] or "Alt-Click To Show Item Drops", 0.6, 0.6, 0.6)
       end
     end
   end

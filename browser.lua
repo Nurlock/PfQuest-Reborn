@@ -100,6 +100,9 @@ local function ResultButtonEnter()
         if rankText then
           GameTooltip:AddDoubleLine(pfQuest_Loc["Classification"] or "Classification", rankText, 0.8, 0.8, 0.8, 1, 1, 0)
         end
+        if pfQuestLoot and pfQuestLoot.HasDrops and pfQuestLoot.HasDrops(id) then
+          GameTooltip:AddLine(pfQuest_Loc["Alt-Click To Show Item Drops"] or "Alt-Click To Show Item Drops", 0.6, 0.6, 0.6)
+        end
       end
 
       local reactionStringA = "|c00ff0000" .. pfQuest_Loc["Hostile"] .. "|r"
@@ -187,6 +190,13 @@ local function ResultButtonClick()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
   elseif this.btype == "units" then
+    if IsAltKeyDown() and this.id and pfQuestLoot and pfQuestLoot.ShowPinned then
+      local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.id]
+      if unitData and unitData["rnk"] then
+        pfQuestLoot.ShowPinned(this)
+        return
+      end
+    end
     if pfBrowser.selectState then
       local maps = pfDatabase:SearchMob(this.name, meta)
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
