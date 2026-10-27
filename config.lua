@@ -144,6 +144,16 @@ pfQuest_defconfig = {
   { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "questiegroup" },
   { text = L["Announce Quest Completion to Party"], default = "1", type = "checkbox", config = "questannounce", parent = "questiegroup" },
 
+  { text = L["Rare Loot Panel"], default = nil, type = "header" },
+  { text = L["Include Pooled Loot"], default = "1", type = "checkbox", config = "epochLootPanelShowReference" },
+  { text = L["Include Unknown Drop Chance"], default = "0", type = "checkbox", config = "epochLootPanelShowUnknownChance" },
+  { text = L["Show Armor & Weapons"], default = "1", type = "checkbox", config = "epochLootPanelShowEquip" },
+  { text = L["Show Quest Items"], default = "1", type = "checkbox", config = "epochLootPanelShowQuestItems" },
+  { text = L["Show Quest Starters"], default = "1", type = "checkbox", config = "epochLootPanelShowQuestStarters" },
+  { text = L["Show Recipe Scrolls"], default = "1", type = "checkbox", config = "epochLootPanelShowRecipes" },
+  { text = L["Show Grey Quality Items"], default = "1", type = "checkbox", config = "epochLootPanelShowGrey" },
+  { text = L["Show White Quality Items"], default = "1", type = "checkbox", config = "epochLootPanelShowWhite" },
+
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
   { text = L["Reset Quest History"], default = "1", type = "button", func = reset.history },
