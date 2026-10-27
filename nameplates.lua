@@ -49,64 +49,83 @@ local function ScanQuestObjectives()
   for qid = 1, numEntries do
     local questTitle, _, _, _, isHeader, _, complete = GetQuestLogTitle(qid)
     if questTitle and not isHeader and complete ~= 1 then
-      activeQuests[questTitle] = {}
-      local numObjectives = GetNumQuestLeaderBoards and GetNumQuestLeaderBoards(qid) or 0
+      local questId = nil
+      if GetQuestLink then
+        local link = GetQuestLink(qid)
+        questId = link and tonumber(string.match(link, "quest:(%d+)"))
+      end
+      if not questId and pfQuest and pfQuest.questlog then
+        for qId, qData in pairs(pfQuest.questlog) do
+          if type(qId) == "number" and (qData.qlogid == qid or qData.title == questTitle) then
+            questId = qId
+            break
+          end
+        end
+      end
+      if not questId and questLoc then
+        for qId, qData in pairs(questLoc) do
+          if qData.T == questTitle then
+            questId = qId
+            break
+          end
+        end
+      end
 
-      for i = 1, numObjectives do
-        local text, objType, finished = GetQuestLogLeaderBoard(i, qid)
-        if text and not finished then
-          local objName, current, total = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
-          if objName then
-            objName = string.gsub(objName, "^%s*(.-)%s*$", "%1")
-            table.insert(activeQuests[questTitle], {
-              objective = objName,
-              current = tonumber(current) or 0,
-              total = tonumber(total) or 1
-            })
+      if questId then
+        activeQuests[questId] = activeQuests[questId] or {}
+        local numObjectives = GetNumQuestLeaderBoards and GetNumQuestLeaderBoards(qid) or 0
+        for i = 1, numObjectives do
+          local text, objType, finished = GetQuestLogLeaderBoard(i, qid)
+          if text and not finished then
+            local objName, current, total = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
+            if objName then
+              objName = string.gsub(objName, "^%s*(.-)%s*$", "%1")
+              table.insert(activeQuests[questId], {
+                objective = objName,
+                current = tonumber(current) or 0,
+                total = tonumber(total) or 1
+              })
+            end
           end
         end
       end
     end
   end
 
-  for questId, localizedData in pairs(questLoc) do
-    local questTitle = localizedData["T"]
+  for questId, activeObjs in pairs(activeQuests) do
+    local questData = pfDB["quests"]["data"][questId]
+    if questData and questData["obj"] then
+      if questData["obj"]["U"] then
+        for _, unitId in pairs(questData["obj"]["U"]) do
+          if unitLoc and unitLoc[unitId] then
+            local targetName = unitLoc[unitId]
 
-    if questTitle and activeQuests[questTitle] then
-      local questData = pfDB["quests"]["data"][questId]
-      if questData and questData["obj"] then
-        if questData["obj"]["U"] then
-          for _, unitId in pairs(questData["obj"]["U"]) do
-            if unitLoc and unitLoc[unitId] then
-              local targetName = unitLoc[unitId]
-
-              for _, activeObj in ipairs(activeQuests[questTitle]) do
-                local objNameBase = activeObj.objective:gsub(" slain$", ""):gsub(" killed$", "")
-                if objNameBase == targetName or string.find(activeObj.objective, targetName, 1, true) then
-                  if activeObj.current < activeObj.total then
-                    questObjectives[targetName] = swordIcon
-                  end
+            for _, activeObj in ipairs(activeObjs) do
+              local objNameBase = activeObj.objective:gsub(" slain$", ""):gsub(" killed$", "")
+              if objNameBase == targetName or string.find(activeObj.objective, targetName, 1, true) then
+                if activeObj.current < activeObj.total then
+                  questObjectives[targetName] = swordIcon
                 end
               end
             end
           end
         end
+      end
 
-        if questData["obj"]["I"] then
-          for _, itemId in pairs(questData["obj"]["I"]) do
-            local itemName = itemLoc and itemLoc[itemId]
-            local itemData = pfDB["items"] and pfDB["items"]["data"] and pfDB["items"]["data"][itemId]
+      if questData["obj"]["I"] then
+        for _, itemId in pairs(questData["obj"]["I"]) do
+          local itemName = itemLoc and itemLoc[itemId]
+          local itemData = pfDB["items"] and pfDB["items"]["data"] and pfDB["items"]["data"][itemId]
 
-            if itemData and itemData["U"] then
-              for unitId in pairs(itemData["U"]) do
-                if unitLoc and unitLoc[unitId] then
-                  local npcName = unitLoc[unitId]
+          if itemData and itemData["U"] then
+            for unitId in pairs(itemData["U"]) do
+              if unitLoc and unitLoc[unitId] then
+                local npcName = unitLoc[unitId]
 
-                  for _, activeObj in ipairs(activeQuests[questTitle]) do
-                    if itemName and string.find(activeObj.objective, itemName, 1, true) then
-                      if activeObj.current < activeObj.total then
-                        questObjectives[npcName] = bagIcon
-                      end
+                for _, activeObj in ipairs(activeObjs) do
+                  if itemName and string.find(activeObj.objective, itemName, 1, true) then
+                    if activeObj.current < activeObj.total then
+                      questObjectives[npcName] = bagIcon
                     end
                   end
                 end
