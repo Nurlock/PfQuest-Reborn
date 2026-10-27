@@ -792,7 +792,7 @@ local lookupsDirty = true
 local function addLookupEntry(tbl, key, entry)
   tbl[key] = tbl[key] or {}
   for _, existing in ipairs(tbl[key]) do
-    if existing.playerName == entry.playerName and existing.questId == entry.questId and existing.objIndex == entry.objIndex then
+    if existing.playerName == entry.playerName and existing.questId == entry.questId and existing.objIndex == entry.objIndex and existing.isEnder == entry.isEnder then
       return
     end
   end
@@ -972,6 +972,53 @@ local function RebuildObjectiveLookups()
                   end
                 end
               end
+            end
+          end
+        end
+      end
+
+      -- 4. Index Quest Enders (NPC_END / OBJECT_END)
+      if questBase and questBase["end"] then
+        local isComplete = questIsComplete
+        if not isComplete and questData.objectives and next(questData.objectives) then
+          isComplete = true
+          for _, o in pairs(questData.objectives) do
+            local ful = tonumber(o.fulfilled or o.ful or o.Collected or o.collected or o.cur or o.current or o.numFulfilled or o.count) or 0
+            local req = tonumber(o.required or o.req or o.Needed or o.needed or o.max or o.numRequired) or 1
+            local fin = o.finished or o.fin or o.Finished or o.Completed or (ful >= req)
+            if not fin then
+              isComplete = false
+              break
+            end
+          end
+        end
+
+        local enderEntry = {
+          playerName = playerName,
+          questId = questId,
+          questTitle = qTitle,
+          isEnder = true,
+          isComplete = isComplete,
+          fulfilled = isComplete and 1 or 0,
+          required = 1,
+          finished = isComplete,
+          text = qTitle,
+        }
+
+        if questBase["end"]["U"] and pfDB["units"] and pfDB["units"]["loc"] then
+          for _, uid in pairs(questBase["end"]["U"]) do
+            local uname = pfDB["units"]["loc"][uid]
+            if uname then
+              addLookupEntry(partyObjectivesByMob, uname, enderEntry)
+            end
+          end
+        end
+
+        if questBase["end"]["O"] and pfDB["objects"] and pfDB["objects"]["loc"] then
+          for _, oid in pairs(questBase["end"]["O"]) do
+            local oname = pfDB["objects"]["loc"][oid]
+            if oname then
+              addLookupEntry(partyObjectivesByObject, oname, enderEntry)
             end
           end
         end
@@ -2174,6 +2221,46 @@ function comms:AddPartyTooltipLines(questTitle, tooltip, meta)
   local filterName = meta and (meta["spawn"] or (meta["item"] and meta["item"][1]))
   local shownPlayerLines = {}
 
+  local isEnder = (meta and (meta["QTYPE"] == "NPC_END" or meta["QTYPE"] == "OBJECT_END"))
+    or (meta and meta["texture"] and strfind(meta["texture"], "complete"))
+
+  if isEnder then
+    for _, playerName in ipairs(playerNames) do
+      local quests = pfQuest.partyQuests[playerName]
+      if quests then
+        for questId, questData in pairs(quests) do
+          local qData = pfDB and pfDB["quests"] and pfDB["quests"]["loc"] and pfDB["quests"]["loc"][questId]
+          local title = qData and qData.T or ("Quest " .. questId)
+          if title == questTitle then
+            local pColor = self:GetPlayerColor(playerName)
+            local isComplete = questData.isComplete or questData.finished or (questData.status == "C" or questData.status == "c" or questData.status == 1 or questData.status == "1")
+            if not isComplete and questData.objectives and next(questData.objectives) then
+              isComplete = true
+              for _, o in pairs(questData.objectives) do
+                local ful = tonumber(o.fulfilled or o.ful or o.Collected or o.collected or o.cur or o.current or o.numFulfilled or o.count) or 0
+                local req = tonumber(o.required or o.req or o.Needed or o.needed or o.max or o.numRequired) or 1
+                local fin = o.finished or o.fin or o.Finished or o.Completed or (ful >= req)
+                if not fin then
+                  isComplete = false
+                  break
+                end
+              end
+            end
+            local lineKey = playerName .. ":ENDER:" .. questTitle
+            if not shownPlayerLines[lineKey] then
+              shownPlayerLines[lineKey] = true
+              local statusText = isComplete
+                and (" |cff00ff00(" .. (pfQuest_Loc["Ready for turn-in"] or "Ready for turn-in") .. ")|r")
+                or (" |cffff5555(" .. (pfQuest_Loc["Incomplete"] or "Incomplete") .. ")|r")
+              tooltip:AddLine("  " .. pColor .. playerName .. "|r:" .. statusText, 0.8, 0.8, 0.8)
+            end
+          end
+        end
+      end
+    end
+    return
+  end
+
   for _, playerName in ipairs(playerNames) do
     local quests = pfQuest.partyQuests[playerName]
     if quests then
@@ -2251,7 +2338,7 @@ function comms:ShowWorldTooltip(name, tooltip)
   local function collect(tbl)
     if not tbl then return end
     for _, e in ipairs(tbl) do
-      local k = e.playerName .. ":" .. e.questId .. ":" .. tostring(e.objIndex)
+      local k = e.playerName .. ":" .. e.questId .. ":" .. tostring(e.objIndex or (e.isEnder and "ENDER" or ""))
       if not seen[k] then
         seen[k] = true
         tinsert(entries, e)
@@ -2295,26 +2382,40 @@ function comms:ShowWorldTooltip(name, tooltip)
     if not alreadyInTooltip[entry.questTitle] then
       if not shownQuests[entry.questTitle] then
         shownQuests[entry.questTitle] = true
-        tooltip:AddLine("|cff555555[|cff33ffcc!|cff555555]|r " .. entry.questTitle, 1, 1, 0.7)
+        local symbol = entry.isEnder and "|cff555555[|cffffcc00?|cff555555]|r " or "|cff555555[|cff33ffcc!|cff555555]|r "
+        tooltip:AddLine(symbol .. entry.questTitle, 1, 1, 0.7)
         anyAdded = true
       end
       local pColor = self:GetPlayerColor(entry.playerName)
-      local cur = tonumber(entry.fulfilled) or 0
-      local req = tonumber(entry.required) or 1
-      local isFin = entry.finished or (cur >= req)
-      if isFin and cur < req then
-        cur = req
-      end
-      local status = isFin and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
-      local objDesc = ""
-      if entry.text and entry.text ~= "" and entry.text ~= name then
-        objDesc = " (" .. entry.text .. ")"
-      end
-      local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":" .. objDesc
-      if not shownEntries[entryKey] then
-        shownEntries[entryKey] = true
-        tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r" .. objDesc .. ": " .. cur .. "/" .. req .. status, 0.8, 0.8, 0.8)
-        anyAdded = true
+      if entry.isEnder then
+        local isComplete = entry.finished or entry.isComplete or ((tonumber(entry.fulfilled) or 0) >= (tonumber(entry.required) or 1))
+        local statusText = isComplete
+          and (" |cff00ff00(" .. (pfQuest_Loc["Ready for turn-in"] or "Ready for turn-in") .. ")|r")
+          or (" |cffff5555(" .. (pfQuest_Loc["Incomplete"] or "Incomplete") .. ")|r")
+        local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":ENDER"
+        if not shownEntries[entryKey] then
+          shownEntries[entryKey] = true
+          tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r:" .. statusText, 0.8, 0.8, 0.8)
+          anyAdded = true
+        end
+      else
+        local cur = tonumber(entry.fulfilled) or 0
+        local req = tonumber(entry.required) or 1
+        local isFin = entry.finished or (cur >= req)
+        if isFin and cur < req then
+          cur = req
+        end
+        local status = isFin and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
+        local objDesc = ""
+        if entry.text and entry.text ~= "" and entry.text ~= name then
+          objDesc = " (" .. entry.text .. ")"
+        end
+        local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":" .. objDesc
+        if not shownEntries[entryKey] then
+          shownEntries[entryKey] = true
+          tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r" .. objDesc .. ": " .. cur .. "/" .. req .. status, 0.8, 0.8, 0.8)
+          anyAdded = true
+        end
       end
     end
   end
