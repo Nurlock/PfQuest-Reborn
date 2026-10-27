@@ -71,25 +71,47 @@ pfQuestAutomation.OnEvent = function(self, event, ...)
   elseif event == "GOSSIP_SHOW" then
     local skipCommission = pfQuest_config and pfQuest_config["epochSkipCommissionQuests"] == "1"
     local numAvailable = GetNumGossipAvailableQuests and GetNumGossipAvailableQuests() or 0
-    for i = 1, numAvailable do
-      local title, _, isLowLevel = GetGossipAvailableQuests(i)
-      if not (SkipLowLevelQuest(isLowLevel) or (skipCommission and title and string.find(title, "Commission"))) then
-        if SelectGossipAvailableQuest then SelectGossipAvailableQuest(i) end
+    if numAvailable > 0 and GetGossipAvailableQuests then
+      local availableQuests = { GetGossipAvailableQuests() }
+      local stride = math.floor(#availableQuests / numAvailable)
+      if stride < 1 then stride = 3 end
+      for i = 1, numAvailable do
+        local base = (i - 1) * stride
+        local title = availableQuests[base + 1]
+        local isLowLevel = availableQuests[base + 3]
+        if not (SkipLowLevelQuest(isLowLevel) or (skipCommission and title and string.find(title, "Commission"))) then
+          if SelectGossipAvailableQuest then
+            SelectGossipAvailableQuest(i)
+            return
+          end
+        end
       end
     end
 
     local numGossipActiveQuests = GetNumGossipActiveQuests and GetNumGossipActiveQuests() or 0
-    for i = 1, numGossipActiveQuests do
+    if numGossipActiveQuests > 0 and GetGossipActiveQuests then
       local activeQuests = { GetGossipActiveQuests() }
-      if activeQuests[i * 4] == 1 then
-        if SelectGossipActiveQuest then SelectGossipActiveQuest(i) end
+      local stride = math.floor(#activeQuests / numGossipActiveQuests)
+      if stride < 1 then stride = 4 end
+      for i = 1, numGossipActiveQuests do
+        local base = (i - 1) * stride
+        local isComplete = activeQuests[base + 4]
+        if isComplete == 1 then
+          if SelectGossipActiveQuest then
+            SelectGossipActiveQuest(i)
+            return
+          end
+        end
       end
-    end
 
-    if pfQuest_config and pfQuest_config["epochAutomateRuneclothDonations"] == "1" and numGossipActiveQuests == 1 then
-      local title = GetGossipActiveQuests(1)
-      if title and string.find(title, "Additional Runecloth") then
-        if SelectGossipActiveQuest then SelectGossipActiveQuest(1) end
+      if pfQuest_config and pfQuest_config["epochAutomateRuneclothDonations"] == "1" and numGossipActiveQuests == 1 then
+        local title = activeQuests[1]
+        if title and string.find(title, "Additional Runecloth") then
+          if SelectGossipActiveQuest then
+            SelectGossipActiveQuest(1)
+            return
+          end
+        end
       end
     end
   end
