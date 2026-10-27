@@ -206,4 +206,16 @@ env.pfQuestNameplates.Scan()
 assert(env.pfQuestNameplates.questObjectives["Defias Captain"] ~= nil, "Defias Captain must have a quest icon")
 print("  ✓ PASS: Nameplate quest objectives scanned and mapped")
 
+print("[TEST] Verifying Continent Map coordinate transformation...")
+load_file("continent.lua")
+assert(env.pfQuestContinent ~= nil, "pfQuestContinent must be defined")
+
+-- Test ZoneToWorld for Elwynn Forest (zone 12)
+local wx, wy = env.pfQuestContinent.ZoneToWorld(50, 50, 12)
+assert(wx ~= nil and wy ~= nil, "ZoneToWorld must return coordinates for Elwynn")
+local cx, cy = env.pfQuestContinent.WorldToContinent(wx, wy, 2)
+assert(cx ~= nil and cy ~= nil, "WorldToContinent must return continent coordinates")
+assert(cx >= 0 and cx <= 1 and cy >= 0 and cy <= 1, "Continent coordinates must be normalized within 0..1")
+print("  ✓ PASS: Continent coordinate projection verified")
+
 print("test_epoch_features PASSED successfully!")

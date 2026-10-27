@@ -160,6 +160,12 @@ pfQuest_defconfig = {
   { text = L["Nameplate Icon X Position"], default = "-25", type = "slider", config = "nameplateX", min = -100, max = 100, step = 1, parent = "epochnameplatesEnabled" },
   { text = L["Nameplate Icon Y Position"], default = "-5", type = "slider", config = "nameplateY", min = -100, max = 100, step = 1, parent = "epochnameplatesEnabled" },
 
+  { text = L["Continent & Dungeon Maps"], default = nil, type = "header" },
+  { text = L["Display Pins on Continent Map"], default = "1", type = "checkbox", config = "epochContinentPins" },
+  { text = L["Continent Node Size"], default = "12", type = "slider", config = "continentNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
+  { text = L["Continent Utility Node Size"], default = "14", type = "slider", config = "continentUtilityNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
+  { text = L["Show Pins on Dungeon Maps"], default = "1", type = "checkbox", config = "epochDungeonPins" },
+
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
   { text = L["Reset Quest History"], default = "1", type = "button", func = reset.history },
