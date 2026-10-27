@@ -817,15 +817,22 @@ local function RebuildObjectiveLookups()
       local qTitle = qData and qData.T or ("Quest " .. questId)
       local questBase = pfDB["quests"] and pfDB["quests"]["data"] and pfDB["quests"]["data"][questId]
 
+      local questIsComplete = questData.isComplete or questData.finished or (questData.status == "C" or questData.status == "c" or questData.status == 1 or questData.status == "1")
+
       if questData.objectives then
         for objIndex, obj in pairs(questData.objectives) do
-          local ful = tonumber(obj.fulfilled or obj.ful or obj.Collected or obj.numFulfilled) or 0
-          local req = tonumber(obj.required or obj.req or obj.Needed or obj.numRequired) or 1
+          local ful = tonumber(obj.fulfilled or obj.ful or obj.Collected or obj.collected or obj.cur or obj.current or obj.numFulfilled or obj.count) or 0
+          local req = tonumber(obj.required or obj.req or obj.Needed or obj.needed or obj.max or obj.numRequired) or 1
           local fin = (obj.finished ~= nil and obj.finished)
             or (obj.fin ~= nil and obj.fin)
             or (obj.Finished ~= nil and obj.Finished)
             or (obj.Completed ~= nil and obj.Completed)
             or (ful >= req)
+            or questIsComplete
+
+          if fin and ful < req then
+            ful = req
+          end
 
           local text = obj.text or obj.desc or obj.name or obj.Description or obj.Text
           local objType = obj.type or obj.typ or obj.Type or "m"
@@ -1553,13 +1560,17 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           local id = obj.id or obj.Id or obj.ID
           if id and id == 0 then id = nil end
 
-          local ful = tonumber(obj.fulfilled or obj.ful or obj.Collected or obj.numFulfilled) or 0
-          local req = tonumber(obj.required or obj.req or obj.Needed or obj.numRequired) or 1
+          local ful = tonumber(obj.fulfilled or obj.ful or obj.Collected or obj.collected or obj.cur or obj.current or obj.numFulfilled or obj.count) or 0
+          local req = tonumber(obj.required or obj.req or obj.Needed or obj.needed or obj.max or obj.numRequired) or 1
           local fin = (obj.finished ~= nil and obj.finished)
             or (obj.fin ~= nil and obj.fin)
             or (obj.Finished ~= nil and obj.Finished)
             or (obj.Completed ~= nil and obj.Completed)
             or (ful >= req)
+
+          if fin and ful < req then
+            ful = req
+          end
 
           local text = obj.text or obj.desc or obj.name or obj.Description or obj.Text
 
@@ -1645,6 +1656,21 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           end
         end
 
+        if isComplete and newObjs then
+          for _, nobj in pairs(newObjs) do
+            nobj.finished = true
+            nobj.fin = true
+            nobj.Finished = true
+            nobj.Completed = true
+            if (nobj.fulfilled or 0) < (nobj.required or 1) then
+              nobj.fulfilled = nobj.required or 1
+              nobj.ful = nobj.required or 1
+              nobj.Collected = nobj.required or 1
+              nobj.numFulfilled = nobj.required or 1
+            end
+          end
+        end
+
         pfQuest.partyQuests[cleanSender][qId] = {
           id = qId,
           status = qStatus,
@@ -1716,11 +1742,27 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
               end
             end
           end
+          local isComplete = questData.isComplete or questData.complete or questData.finished or (oldQuest and (oldQuest.isComplete or oldQuest.finished))
+          if isComplete and newObjs then
+            for _, nobj in pairs(newObjs) do
+              nobj.finished = true
+              nobj.fin = true
+              nobj.Finished = true
+              nobj.Completed = true
+              if (nobj.fulfilled or 0) < (nobj.required or 1) then
+                nobj.fulfilled = nobj.required or 1
+                nobj.ful = nobj.required or 1
+                nobj.Collected = nobj.required or 1
+                nobj.numFulfilled = nobj.required or 1
+              end
+            end
+          end
+
           pfQuest.partyQuests[cleanSender][qId] = {
             id = qId,
             status = questData.status or questData.Status or (oldQuest and oldQuest.status),
-            isComplete = questData.isComplete or questData.complete or questData.finished or (oldQuest and (oldQuest.isComplete or oldQuest.finished)),
-            finished = questData.isComplete or questData.complete or questData.finished or (oldQuest and (oldQuest.isComplete or oldQuest.finished)),
+            isComplete = isComplete,
+            finished = isComplete,
             objectives = newObjs,
           }
           UpdatePartyMapNodes(qId, cleanSender)
@@ -1879,9 +1921,12 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
         end
         local oIdx = packet.objIndex or packet.index or packet.idx or 1
         local oldObj = qObj.objectives and qObj.objectives[oIdx]
-        local ful = tonumber(packet.fulfilled or packet.ful or packet.cur or packet.Collected or packet.numFulfilled) or 0
-        local req = tonumber(packet.required or packet.req or packet.max or packet.Needed or packet.numRequired) or 1
+        local ful = tonumber(packet.fulfilled or packet.ful or packet.cur or packet.Collected or packet.collected or packet.numFulfilled or packet.count) or 0
+        local req = tonumber(packet.required or packet.req or packet.max or packet.Needed or packet.needed or packet.numRequired) or 1
         local fin = (ful >= req) or packet.finished or packet.fin or packet.Finished or packet.Completed
+        if fin and ful < req then
+          ful = req
+        end
         local text = packet.text or packet.desc or packet.Description or (oldObj and oldObj.text)
         local rawId = packet.objId or packet.id or (oldObj and oldObj.id)
         local typ = ParseObjectiveType(packet.type or packet.typ or packet.Type or (oldObj and oldObj.type))
@@ -2140,9 +2185,13 @@ function comms:AddPartyTooltipLines(questTitle, tooltip, meta)
           for _, obj in pairs(questData.objectives) do
             local matchesFilter = (not filterName) or (not hasMatch) or (obj.text and (obj.text == filterName or strfind(obj.text, filterName, 1, true) or strfind(filterName, obj.text, 1, true)))
             if matchesFilter then
-              local cur = obj.fulfilled or 0
-              local req = obj.required or 1
-              local status = obj.finished and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
+              local cur = tonumber(obj.fulfilled or obj.Collected or obj.collected or obj.cur or obj.numFulfilled or obj.count) or 0
+              local req = tonumber(obj.required or obj.Needed or obj.needed or obj.max or obj.numRequired) or 1
+              local isFin = obj.finished or (questData.isComplete or questData.finished or questData.status == "C" or questData.status == "c" or questData.status == 1 or questData.status == "1") or (cur >= req)
+              if isFin and cur < req then
+                cur = req
+              end
+              local status = isFin and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
               local objLabel = ""
               if numObjs > 1 and not hasMatch then
                 if obj.text and obj.text ~= "" then
@@ -2237,7 +2286,13 @@ function comms:ShowWorldTooltip(name, tooltip)
         anyAdded = true
       end
       local pColor = self:GetPlayerColor(entry.playerName)
-      local status = entry.finished and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
+      local cur = tonumber(entry.fulfilled) or 0
+      local req = tonumber(entry.required) or 1
+      local isFin = entry.finished or (cur >= req)
+      if isFin and cur < req then
+        cur = req
+      end
+      local status = isFin and (" |cff00ff00(" .. (pfQuest_Loc["Complete"] or "Complete") .. ")|r") or ""
       local objDesc = ""
       if entry.text and entry.text ~= "" and entry.text ~= name then
         objDesc = " (" .. entry.text .. ")"
@@ -2245,7 +2300,7 @@ function comms:ShowWorldTooltip(name, tooltip)
       local entryKey = entry.questTitle .. ":" .. entry.playerName .. ":" .. objDesc
       if not shownEntries[entryKey] then
         shownEntries[entryKey] = true
-        tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r" .. objDesc .. ": " .. entry.fulfilled .. "/" .. entry.required .. status, 0.8, 0.8, 0.8)
+        tooltip:AddLine("  " .. pColor .. entry.playerName .. "|r" .. objDesc .. ": " .. cur .. "/" .. req .. status, 0.8, 0.8, 0.8)
         anyAdded = true
       end
     end
