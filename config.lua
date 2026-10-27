@@ -140,9 +140,9 @@ pfQuest_defconfig = {
   { text = L["Experimental Features"], default = nil, type = "header" },
   { text = L["Enable Experimental Features"], default = "0", type = "checkbox", config = "experimental" },
   { text = L["Enable Questie Group Sync"], default = "1", type = "checkbox", config = "questiegroup", parent = "experimental" },
-  { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives", parent = "questiegroup" },
-  { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "questiegroup" },
-  { text = L["Announce Quest Completion to Party"], default = "1", type = "checkbox", config = "questannounce", parent = "questiegroup" },
+  { text = L["Enable pfQuest-epoch Group Sync"], default = "1", type = "checkbox", config = "epochgroupsync", parent = "experimental" },
+  { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives", parent = "experimental" },
+  { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "experimental" },
 
   { text = L["Rare Loot Panel"], default = nil, type = "header" },
   { text = L["Include Pooled Loot"], default = "1", type = "checkbox", config = "epochLootPanelShowReference" },
@@ -173,6 +173,7 @@ pfQuest_defconfig = {
   { text = L["Automate Runecloth Turn-Ins"], default = "0", type = "checkbox", config = "epochAutomateRuneclothDonations", parent = "epochAutoQuests" },
 
   { text = L["Chat Announcements"], default = nil, type = "header" },
+  { text = L["Announce Quest Completion to Party"], default = "1", type = "checkbox", config = "questannounce" },
   { text = L["Announce Objective Progress"], default = "0", type = "checkbox", config = "epochannounceRemaining" },
   { text = L["Announce Objective Completion"], default = "1", type = "checkbox", config = "epochannounceFinished" },
   { text = L["Include Item Links in Announcements"], default = "1", type = "checkbox", config = "epochannounceShowItem" },

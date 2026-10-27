@@ -635,8 +635,22 @@ end
 function comms:IsEnabled()
   if pfQuest_config then
     if pfQuest_config["experimental"] ~= "1" then return false end
-    if pfQuest_config["questiegroup"] == "0" then return false end
+    local qSync = pfQuest_config["questiegroup"]
+    local eSync = pfQuest_config["epochgroupsync"]
+    if qSync == "0" and eSync == "0" then return false end
   end
+  return true
+end
+
+function comms:IsQuestieEnabled()
+  if not self:IsEnabled() then return false end
+  if pfQuest_config and pfQuest_config["questiegroup"] == "0" then return false end
+  return true
+end
+
+function comms:IsEpochSyncEnabled()
+  if not self:IsEnabled() then return false end
+  if pfQuest_config and pfQuest_config["epochgroupsync"] == "0" then return false end
   return true
 end
 
@@ -1392,64 +1406,71 @@ end
 
 function comms:BroadcastQuestUpdate(questId)
   self:UpdateLocalPlayerQuest(questId)
-  if not self:IsEnabled() then return end
   if not self:IsInGroup() then return end
 
-  local data = pfQuest.questlog and pfQuest.questlog[questId]
-  if not data or not data.qlogid then return end
+  if self:IsQuestieEnabled() then
+    local data = pfQuest.questlog and pfQuest.questlog[questId]
+    if data and data.qlogid then
+      local questObj = self:CreateQuestData(questId, data.qlogid)
+      local packet = {
+        ver = ADDON_VERSION_STR,
+        msgVer = COMM_MESSAGE_VERSION,
+        msgId = QC_ID_BROADCAST_QUEST_UPDATE,
+        quest = questObj,
+      }
 
-  local questObj = self:CreateQuestData(questId, data.qlogid)
-  local packet = {
-    ver = ADDON_VERSION_STR,
-    msgVer = COMM_MESSAGE_VERSION,
-    msgId = QC_ID_BROADCAST_QUEST_UPDATE,
-    quest = questObj,
-  }
-
-  local serialized = Serializer:Serialize(packet, "b89")
-  local dist = self:GetGroupDistribution()
-  if dist then
-    self:SendComm(COMM_PREFIX, serialized, dist)
-  end
-  self:BroadcastPfqeQuestUpdate(questId)
-end
-
-function comms:BroadcastQuestRemove(questId)
-  self:RemoveLocalPlayerQuest(questId)
-  if not self:IsEnabled() then return end
-  if not self:IsInGroup() then return end
-
-  local numericId = tonumber(questId)
-  if not numericId and type(questId) == "string" and _G.pfDB and _G.pfDB.quests and _G.pfDB.quests.loc then
-    for qid, qd in pairs(_G.pfDB.quests.loc) do
-      if qd.T == questId then
-        numericId = qid
-        break
+      local serialized = Serializer:Serialize(packet, "b89")
+      local dist = self:GetGroupDistribution()
+      if dist then
+        self:SendComm(COMM_PREFIX, serialized, dist)
       end
     end
   end
 
-  local packet = {
-    ver = ADDON_VERSION_STR,
-    msgVer = COMM_MESSAGE_VERSION,
-    msgId = QC_ID_BROADCAST_QUEST_REMOVE,
-    id = numericId or questId,
-    questId = numericId or questId,
-    [1] = QC_ID_BROADCAST_QUEST_REMOVE,
-    [2] = numericId or questId,
-  }
-
-  local serialized = Serializer:Serialize(packet, "b89")
-  local dist = self:GetGroupDistribution()
-  if dist then
-    self:SendComm(COMM_PREFIX, serialized, dist)
+  if self:IsEpochSyncEnabled() then
+    self:BroadcastPfqeQuestUpdate(questId)
   end
-  self:BroadcastPfqeQuestRemove(questId)
+end
+
+function comms:BroadcastQuestRemove(questId)
+  self:RemoveLocalPlayerQuest(questId)
+  if not self:IsInGroup() then return end
+
+  if self:IsQuestieEnabled() then
+    local numericId = tonumber(questId)
+    if not numericId and type(questId) == "string" and _G.pfDB and _G.pfDB.quests and _G.pfDB.quests.loc then
+      for qid, qd in pairs(_G.pfDB.quests.loc) do
+        if qd.T == questId then
+          numericId = qid
+          break
+        end
+      end
+    end
+
+    local packet = {
+      ver = ADDON_VERSION_STR,
+      msgVer = COMM_MESSAGE_VERSION,
+      msgId = QC_ID_BROADCAST_QUEST_REMOVE,
+      id = numericId or questId,
+      questId = numericId or questId,
+      [1] = QC_ID_BROADCAST_QUEST_REMOVE,
+      [2] = numericId or questId,
+    }
+
+    local serialized = Serializer:Serialize(packet, "b89")
+    local dist = self:GetGroupDistribution()
+    if dist then
+      self:SendComm(COMM_PREFIX, serialized, dist)
+    end
+  end
+
+  if self:IsEpochSyncEnabled() then
+    self:BroadcastPfqeQuestRemove(questId)
+  end
 end
 
 function comms:BroadcastFullQuestList(targetPlayer)
   self:UpdateLocalPlayerQuests()
-  if not self:IsEnabled() then return end
   local dist = targetPlayer and "WHISPER" or self:GetGroupDistribution()
   if not dist then return end
 
@@ -1458,29 +1479,34 @@ function comms:BroadcastFullQuestList(targetPlayer)
     return
   end
 
-  local rawQuestList = {}
-  if pfQuest.questlog then
-    for questId, data in pairs(pfQuest.questlog) do
-      if type(questId) == "number" and data.qlogid then
-        rawQuestList[questId] = self:CreateQuestData(questId, data.qlogid)
+  if self:IsQuestieEnabled() then
+    local rawQuestList = {}
+    if pfQuest.questlog then
+      for questId, data in pairs(pfQuest.questlog) do
+        if type(questId) == "number" and data.qlogid then
+          rawQuestList[questId] = self:CreateQuestData(questId, data.qlogid)
+        end
       end
     end
+
+    local packet = {
+      ver = ADDON_VERSION_STR,
+      msgVer = COMM_MESSAGE_VERSION,
+      msgId = QC_ID_BROADCAST_FULL_QUESTLIST,
+      rawQuestList = rawQuestList,
+    }
+
+    local serialized = Serializer:Serialize(packet, "b89")
+    self:SendComm(COMM_PREFIX, serialized, dist, targetPlayer)
   end
 
-  local packet = {
-    ver = ADDON_VERSION_STR,
-    msgVer = COMM_MESSAGE_VERSION,
-    msgId = QC_ID_BROADCAST_FULL_QUESTLIST,
-    rawQuestList = rawQuestList,
-  }
-
-  local serialized = Serializer:Serialize(packet, "b89")
-  self:SendComm(COMM_PREFIX, serialized, dist, targetPlayer)
-  self:BroadcastPfqeFullQuestList(targetPlayer)
+  if self:IsEpochSyncEnabled() then
+    self:BroadcastPfqeFullQuestList(targetPlayer)
+  end
 end
 
 function comms:BroadcastPfqeQuestUpdate(questId)
-  if not self:IsEnabled() or not self:IsInGroup() then return end
+  if not self:IsEpochSyncEnabled() or not self:IsInGroup() then return end
   local dist = self:GetGroupDistribution()
   if not dist then return end
 
@@ -1512,7 +1538,7 @@ function comms:BroadcastPfqeQuestUpdate(questId)
 end
 
 function comms:BroadcastPfqeQuestRemove(questId)
-  if not self:IsEnabled() or not self:IsInGroup() then return end
+  if not self:IsEpochSyncEnabled() or not self:IsInGroup() then return end
   local dist = self:GetGroupDistribution()
   if not dist then return end
 
@@ -1540,7 +1566,7 @@ function comms:BroadcastPfqeQuestRemove(questId)
 end
 
 function comms:BroadcastPfqeFullQuestList(targetPlayer)
-  if not self:IsEnabled() or not self:IsInGroup() then return end
+  if not self:IsEpochSyncEnabled() or not self:IsInGroup() then return end
   local dist = targetPlayer and "WHISPER" or self:GetGroupDistribution()
   if not dist then return end
 
@@ -1580,7 +1606,7 @@ function comms:BroadcastPfqeFullQuestList(targetPlayer)
 end
 
 function comms:SendVisibilitySnapshot(targetPlayer)
-  if not self:IsEnabled() then return end
+  if not self:IsQuestieEnabled() then return end
   local dist = targetPlayer and "WHISPER" or self:GetGroupDistribution()
   if not dist then return end
 
@@ -1599,8 +1625,8 @@ function comms:SendVisibilitySnapshot(targetPlayer)
   self:SendComm(VISIBILITY_PREFIX, serialized, dist, targetPlayer)
 end
 
-function comms:RequestFullQuestList()
-  if not self:IsEnabled() then return end
+function comms:RequestFullQuestList(targetPlayer)
+  if not self:IsQuestieEnabled() then return end
   local dist = self:GetGroupDistribution()
   if not dist then return end
 
@@ -1637,7 +1663,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
   if cleanSender == myName or sender == myName then
     return
   end
-  if not comms:IsEnabled() then
+  if not comms:IsQuestieEnabled() then
     return
   end
 
@@ -2125,7 +2151,7 @@ end
 
 function comms:OnPfqeReceived(message, distribution, sender)
   if not message or not sender then return end
-  if not self:IsEnabled() then return end
+  if not self:IsEpochSyncEnabled() then return end
 
   local myName = UnitName("player")
   local cleanSender = sender
@@ -2306,7 +2332,7 @@ function comms:GetGroupDistribution()
 end
 
 function comms:AnnounceQuest(questId, title, isTurnIn)
-  if pfQuest_config and (pfQuest_config["experimental"] ~= "1" or pfQuest_config["questannounce"] == "0") then
+  if pfQuest_config and pfQuest_config["questannounce"] == "0" then
     return
   end
   if not self:IsInGroup() then
