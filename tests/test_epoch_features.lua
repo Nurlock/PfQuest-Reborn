@@ -218,4 +218,29 @@ assert(cx ~= nil and cy ~= nil, "WorldToContinent must return continent coordina
 assert(cx >= 0 and cx <= 1 and cy >= 0 and cy <= 1, "Continent coordinates must be normalized within 0..1")
 print("  ✓ PASS: Continent coordinate projection verified")
 
+print("[TEST] Verifying Quest Automation...")
+load_file("automation.lua")
+assert(env.pfQuestAutomation ~= nil, "pfQuestAutomation must be defined")
+
+local accepted = false
+env.AcceptQuest = function() accepted = true end
+env.GetTitleText = function() return "Regular Quest" end
+
+-- Disabled by default
+env.pfQuest_config["epochAutoQuests"] = "0"
+env.pfQuestAutomation.OnEvent(nil, "QUEST_DETAIL")
+assert(accepted == false, "AcceptQuest must not be called when automation disabled")
+
+-- Enabled
+env.pfQuest_config["epochAutoQuests"] = "1"
+env.pfQuestAutomation.OnEvent(nil, "QUEST_DETAIL")
+assert(accepted == true, "AcceptQuest must be called when automation enabled")
+
+local completed = false
+env.IsQuestCompletable = function() return true end
+env.CompleteQuest = function() completed = true end
+env.pfQuestAutomation.OnEvent(nil, "QUEST_PROGRESS")
+assert(completed == true, "CompleteQuest must be called when quest is completable")
+print("  ✓ PASS: Quest automation event triggers verified")
+
 print("test_epoch_features PASSED successfully!")

@@ -166,6 +166,12 @@ pfQuest_defconfig = {
   { text = L["Continent Utility Node Size"], default = "14", type = "slider", config = "continentUtilityNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
   { text = L["Show Pins on Dungeon Maps"], default = "1", type = "checkbox", config = "epochDungeonPins" },
 
+  { text = L["Quest Automation"], default = nil, type = "header" },
+  { text = L["Automatically Accept & Turn-In Quests"], default = "0", type = "checkbox", config = "epochAutoQuests" },
+  { text = L["Skip Accepting Low Level Quests"], default = "1", type = "checkbox", config = "epochAutoQuestsSkipLowLevel", parent = "epochAutoQuests" },
+  { text = L["Skip Accepting Commission Quests"], default = "1", type = "checkbox", config = "epochSkipCommissionQuests", parent = "epochAutoQuests" },
+  { text = L["Automate Runecloth Turn-Ins"], default = "0", type = "checkbox", config = "epochAutomateRuneclothDonations", parent = "epochAutoQuests" },
+
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
   { text = L["Reset Quest History"], default = "1", type = "button", func = reset.history },
