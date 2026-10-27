@@ -787,6 +787,8 @@ end
 -- ---------------------------------------------------------------------------
 -- Objective Indexing & Cache
 -- ---------------------------------------------------------------------------
+local lookupsDirty = true
+
 local function addLookupEntry(tbl, key, entry)
   tbl[key] = tbl[key] or {}
   for _, existing in ipairs(tbl[key]) do
@@ -969,6 +971,13 @@ local function RebuildObjectiveLookups()
       end
     end
   end
+  lookupsDirty = false
+end
+
+local function EnsureObjectiveLookups()
+  if lookupsDirty then
+    RebuildObjectiveLookups()
+  end
 end
 
 -- ---------------------------------------------------------------------------
@@ -992,17 +1001,21 @@ function comms:DeletePartyQuestNodes(questId, sender)
   end
   local qTitle = qData and qData.T or (type(questId) == "string" and questId) or ("Quest " .. tostring(questId))
   local nodeTitle = sender and (qTitle .. " (" .. sender .. ")") or qTitle
+  local deleted = false
 
   if pfMap.DeleteNode then
     if sender then
       pfMap:DeleteNode("PARTY", nodeTitle)
+      deleted = true
     end
     pfMap:DeleteNode("PARTY", qTitle)
+    deleted = true
     if type(questId) == "string" and questId ~= qTitle then
       if sender then
         pfMap:DeleteNode("PARTY", questId .. " (" .. sender .. ")")
       end
       pfMap:DeleteNode("PARTY", questId)
+      deleted = true
     end
   end
 
@@ -1015,6 +1028,7 @@ function comms:DeletePartyQuestNodes(questId, sender)
               node.quest == qTitle or title == nodeTitle or title == qTitle or
               (type(questId) == "string" and (node.quest == questId or title == questId))) then
             titles[title] = nil
+            deleted = true
             if pfMap.titleIndex and pfMap.titleIndex["PARTY"] and pfMap.titleIndex["PARTY"][title] then
               if pfMap.titleIndex["PARTY"][title][map] then
                 pfMap.titleIndex["PARTY"][title][map][coord] = nil
@@ -1031,10 +1045,8 @@ function comms:DeletePartyQuestNodes(questId, sender)
     end
   end
 
-  pfMap.queue_update = GetTime()
-  pfMap.tick = nil
-  if pfMap.UpdateNodes then
-    pfMap:UpdateNodes()
+  if deleted then
+    pfMap.queue_update = GetTime()
   end
 end
 
@@ -1127,10 +1139,6 @@ local function UpdatePartyMapNodes(questId, playerName)
 
     pfDatabase:SearchQuestID(numQId or questId, meta)
     pfMap.queue_update = GetTime()
-    pfMap.tick = nil
-    if pfMap.UpdateNodes then
-      pfMap:UpdateNodes()
-    end
   end
 end
 
@@ -1289,7 +1297,7 @@ function comms:UpdateLocalPlayerQuest(questId)
   else
     pfQuest.partyQuests[playerName][questId] = nil
   end
-  RebuildObjectiveLookups()
+  lookupsDirty = true
 end
 
 function comms:RemoveLocalPlayerQuest(questId)
@@ -1297,7 +1305,7 @@ function comms:RemoveLocalPlayerQuest(questId)
   if not playerName then return end
   if pfQuest.partyQuests and pfQuest.partyQuests[playerName] then
     pfQuest.partyQuests[playerName][questId] = nil
-    RebuildObjectiveLookups()
+    lookupsDirty = true
   end
 end
 
@@ -1308,7 +1316,7 @@ function comms:UpdateLocalPlayerQuests()
   if not self:IsInGroup() then
     if pfQuest.partyQuests and pfQuest.partyQuests[playerName] then
       pfQuest.partyQuests[playerName] = nil
-      RebuildObjectiveLookups()
+      lookupsDirty = true
     end
     return
   end
@@ -1325,7 +1333,7 @@ function comms:UpdateLocalPlayerQuests()
   end
 
   pfQuest.partyQuests[playerName] = localQuests
-  RebuildObjectiveLookups()
+  lookupsDirty = true
 end
 
 function comms:BroadcastQuestUpdate(questId)
@@ -1644,7 +1652,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           finished = isComplete,
           objectives = newObjs,
         }
-        RebuildObjectiveLookups()
+        lookupsDirty = true
         UpdatePartyMapNodes(qId, cleanSender)
       end
 
@@ -1672,7 +1680,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
             pfQuest.partyQuests[cleanSender][numRaw] = nil
           end
         end
-        RebuildObjectiveLookups()
+        lookupsDirty = true
         comms:DeletePartyQuestNodes(qId, cleanSender)
         if numQId and numQId ~= qId then
           comms:DeletePartyQuestNodes(numQId, cleanSender)
@@ -1717,7 +1725,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           }
           UpdatePartyMapNodes(qId, cleanSender)
         end
-        RebuildObjectiveLookups()
+        lookupsDirty = true
       end
 
     elseif msgId == QC_ID_REQUEST_FULL_QUESTLIST then
@@ -1797,7 +1805,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           UpdatePartyMapNodes(qId, cleanSender)
         end
 
-        RebuildObjectiveLookups()
+        lookupsDirty = true
       end
 
     elseif msgId == QC_ID_BROADCAST_QUEST_UPDATEV2 then
@@ -1857,7 +1865,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           status = oldQuest and oldQuest.status,
           objectives = objectives,
         }
-        RebuildObjectiveLookups()
+        lookupsDirty = true
         UpdatePartyMapNodes(qId, cleanSender)
       end
 
@@ -1900,7 +1908,7 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
           Description = text,
           Text = text,
         }
-        RebuildObjectiveLookups()
+        lookupsDirty = true
         UpdatePartyMapNodes(qId, cleanSender)
       end
     end
@@ -2049,7 +2057,7 @@ function comms:PrunePartyMembers()
       multipartSpool[k] = nil
     end
   end
-  RebuildObjectiveLookups()
+  lookupsDirty = true
 end
 
 function comms:ClearAllPartyData()
@@ -2060,7 +2068,7 @@ function comms:ClearAllPartyData()
     pfMap.nodes["PARTY"] = {}
     pfMap.queue_update = GetTime()
   end
-  RebuildObjectiveLookups()
+  lookupsDirty = true
 end
 
 -- ---------------------------------------------------------------------------
@@ -2086,6 +2094,7 @@ function comms:AddPartyTooltipLines(questTitle, tooltip, meta)
   if not self:IsInGroup() then
     return
   end
+  EnsureObjectiveLookups()
   tooltip = tooltip or GameTooltip
   local pfDB = _G.pfDB
   local localPlayer = UnitName("player")
@@ -2163,6 +2172,7 @@ function comms:ShowWorldTooltip(name, tooltip)
     return
   end
   if not name or name == "__NONE__" then return end
+  EnsureObjectiveLookups()
   tooltip = tooltip or GameTooltip
 
   if tooltip._pfQuestieTooltipName == name then
