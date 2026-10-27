@@ -682,6 +682,7 @@ end
 
 local customids = {
   ["AlteracValley"] = 2597,
+  ["Ragefire"] = 2437,
 }
 
 -- Reforged: sub-maps -- a map area that is a PIECE of a zone pfQuest has data
