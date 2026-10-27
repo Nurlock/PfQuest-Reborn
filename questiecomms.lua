@@ -1411,6 +1411,7 @@ function comms:BroadcastQuestUpdate(questId)
   if dist then
     self:SendComm(COMM_PREFIX, serialized, dist)
   end
+  self:BroadcastPfqeQuestUpdate(questId)
 end
 
 function comms:BroadcastQuestRemove(questId)
@@ -1443,6 +1444,7 @@ function comms:BroadcastQuestRemove(questId)
   if dist then
     self:SendComm(COMM_PREFIX, serialized, dist)
   end
+  self:BroadcastPfqeQuestRemove(questId)
 end
 
 function comms:BroadcastFullQuestList(targetPlayer)
@@ -1474,6 +1476,107 @@ function comms:BroadcastFullQuestList(targetPlayer)
 
   local serialized = Serializer:Serialize(packet, "b89")
   self:SendComm(COMM_PREFIX, serialized, dist, targetPlayer)
+  self:BroadcastPfqeFullQuestList(targetPlayer)
+end
+
+function comms:BroadcastPfqeQuestUpdate(questId)
+  if not self:IsEnabled() or not self:IsInGroup() then return end
+  local dist = self:GetGroupDistribution()
+  if not dist then return end
+
+  local data = pfQuest.questlog and pfQuest.questlog[questId]
+  if not data or not data.qlogid then return end
+
+  local questObj = self:CreateQuestData(questId, data.qlogid)
+  if not questObj or not questObj.objectives or #questObj.objectives == 0 then return end
+
+  local batch = "V1|"
+  for _, obj in ipairs(questObj.objectives) do
+    local tType = (obj.type == "m" and "U") or (obj.type == "i" and "I") or (obj.type == "o" and "O") or "U"
+    local tId = obj.id or 0
+    if tId > 0 then
+      local cur = tonumber(obj.fulfilled or obj.Collected or 0) or 0
+      local req = tonumber(obj.required or obj.Needed or 1) or 1
+      local entryStr = string.format("%s%dQ%d:%d:%d;", tType, tId, questId, cur, req)
+      if #batch + #entryStr > 250 then
+        SendAddonMessage("pfqe", batch, dist)
+        batch = "V1|" .. entryStr
+      else
+        batch = batch .. entryStr
+      end
+    end
+  end
+  if #batch > 3 then
+    SendAddonMessage("pfqe", batch, dist)
+  end
+end
+
+function comms:BroadcastPfqeQuestRemove(questId)
+  if not self:IsEnabled() or not self:IsInGroup() then return end
+  local dist = self:GetGroupDistribution()
+  if not dist then return end
+
+  local numericId = tonumber(questId)
+  local pfDB = _G.pfDB
+  local qTitle
+  if pfDB and pfDB.quests and pfDB.quests.loc and numericId and pfDB.quests.loc[numericId] then
+    qTitle = pfDB.quests.loc[numericId].T
+  elseif type(questId) == "string" then
+    qTitle = questId
+    if pfDB and pfDB.quests and pfDB.quests.loc then
+      for qid, qd in pairs(pfDB.quests.loc) do
+        if qd.T == questId then
+          numericId = qid
+          break
+        end
+      end
+    end
+  end
+  qTitle = qTitle or ("Quest " .. tostring(questId))
+  numericId = numericId or 0
+
+  local msg = string.format("REMOVEQ:%d:%s", numericId, qTitle)
+  SendAddonMessage("pfqe", msg, dist)
+end
+
+function comms:BroadcastPfqeFullQuestList(targetPlayer)
+  if not self:IsEnabled() or not self:IsInGroup() then return end
+  local dist = targetPlayer and "WHISPER" or self:GetGroupDistribution()
+  if not dist then return end
+
+  local numLog = GetNumQuestLogEntries and GetNumQuestLogEntries() or 0
+  if numLog > 0 and (not pfQuest.questlog or not next(pfQuest.questlog)) then
+    return
+  end
+
+  local batch = "V1|"
+  if pfQuest.questlog then
+    for questId, data in pairs(pfQuest.questlog) do
+      if type(questId) == "number" and data.qlogid then
+        local questObj = self:CreateQuestData(questId, data.qlogid)
+        if questObj and questObj.objectives then
+          for _, obj in ipairs(questObj.objectives) do
+            local tType = (obj.type == "m" and "U") or (obj.type == "i" and "I") or (obj.type == "o" and "O") or "U"
+            local tId = obj.id or 0
+            if tId > 0 then
+              local cur = tonumber(obj.fulfilled or obj.Collected or 0) or 0
+              local req = tonumber(obj.required or obj.Needed or 1) or 1
+              local entryStr = string.format("%s%dQ%d:%d:%d;", tType, tId, questId, cur, req)
+              if #batch + #entryStr > 250 then
+                SendAddonMessage("pfqe", batch, dist, targetPlayer)
+                batch = "V1|" .. entryStr
+              else
+                batch = batch .. entryStr
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  if #batch > 3 then
+    SendAddonMessage("pfqe", batch, dist, targetPlayer)
+  end
 end
 
 function comms:SendVisibilitySnapshot(targetPlayer)
@@ -2020,6 +2123,172 @@ function comms:OnCommReceived(prefix, message, distribution, sender)
   end
 end
 
+function comms:OnPfqeReceived(message, distribution, sender)
+  if not message or not sender then return end
+  if not self:IsEnabled() then return end
+
+  local myName = UnitName("player")
+  local cleanSender = sender
+  if strfind(sender, "-") then
+    cleanSender = strsplit("-", sender)
+  end
+  if cleanSender == myName or sender == myName then return end
+
+  -- Handle PING?
+  if message == "PING?" then
+    local ver = GetAddOnMetadata and GetAddOnMetadata("pfQuest-Reborn", "Version") or "1.0"
+    SendAddonMessage("pfqe", "PONG!:" .. ver, distribution, sender)
+    return
+  end
+
+  -- Handle REMOVEQ / REMOVE
+  local removeQuestId, removeQuestTitle = string.match(message, "^REMOVEQ:(%d+):(.+)$")
+  if not removeQuestId then
+    local _, oldTitle = string.match(message, "^REMOVE:([^:]+):(.+)$")
+    removeQuestTitle = oldTitle
+  end
+
+  if removeQuestId or removeQuestTitle then
+    local numQId = tonumber(removeQuestId)
+    local pfDB = _G.pfDB
+    if not numQId and removeQuestTitle and pfDB and pfDB.quests and pfDB.quests.loc then
+      for qid, qd in pairs(pfDB.quests.loc) do
+        if qd.T == removeQuestTitle then
+          numQId = qid
+          break
+        end
+      end
+    end
+
+    if pfQuest.partyQuests and pfQuest.partyQuests[cleanSender] then
+      if numQId then
+        pfQuest.partyQuests[cleanSender][numQId] = nil
+        self:DeletePartyQuestNodes(numQId, cleanSender)
+      end
+      if removeQuestTitle then
+        for qId, qd in pairs(pfQuest.partyQuests[cleanSender]) do
+          local qLoc = pfDB and pfDB.quests and pfDB.quests.loc and pfDB.quests.loc[qId]
+          if (qLoc and qLoc.T == removeQuestTitle) or qId == removeQuestTitle then
+            pfQuest.partyQuests[cleanSender][qId] = nil
+            self:DeletePartyQuestNodes(qId, cleanSender)
+          end
+        end
+      end
+      lookupsDirty = true
+    end
+    return
+  end
+
+  -- Handle V1| batch
+  if strsub(message, 1, 3) == "V1|" then
+    local batch = strsub(message, 4)
+    local pfDB = _G.pfDB
+    pfQuest.partyQuests = pfQuest.partyQuests or {}
+    pfQuest.partyQuests[cleanSender] = pfQuest.partyQuests[cleanSender] or {}
+    local updatedQuests = {}
+
+    for entry in string.gmatch(batch, "([^;]+)") do
+      local targetType, targetId, questId, current, total = string.match(entry, "^([UIO])(%d+)Q(%d+):(%d+):(%d+)$")
+      if targetType and targetId and questId and current and total then
+        targetId = tonumber(targetId)
+        questId = tonumber(questId)
+        current = tonumber(current)
+        total = tonumber(total)
+
+        local objType = (targetType == "U" and "m") or (targetType == "I" and "i") or (targetType == "O" and "o") or "m"
+        local objText = nil
+        if objType == "m" and pfDB and pfDB.units and pfDB.units.loc and pfDB.units.loc[targetId] then
+          objText = pfDB.units.loc[targetId]
+        elseif objType == "i" and pfDB and pfDB.items and pfDB.items.loc and pfDB.items.loc[targetId] then
+          objText = pfDB.items.loc[targetId]
+        elseif objType == "o" and pfDB and pfDB.objects and pfDB.objects.loc and pfDB.objects.loc[targetId] then
+          objText = pfDB.objects.loc[targetId]
+        end
+
+        local qObj = pfQuest.partyQuests[cleanSender][questId]
+        if not qObj then
+          qObj = {
+            id = questId,
+            objectives = {}
+          }
+          pfQuest.partyQuests[cleanSender][questId] = qObj
+        end
+
+        local foundObj = nil
+        for _, o in ipairs(qObj.objectives) do
+          if o.id == targetId and o.type == objType then
+            foundObj = o
+            break
+          end
+        end
+
+        local isFin = (current >= total)
+        if foundObj then
+          foundObj.fulfilled = current
+          foundObj.ful = current
+          foundObj.Collected = current
+          foundObj.numFulfilled = current
+          foundObj.required = total
+          foundObj.req = total
+          foundObj.Needed = total
+          foundObj.numRequired = total
+          foundObj.finished = isFin
+          foundObj.fin = isFin
+          foundObj.Finished = isFin
+          foundObj.Completed = isFin
+          if objText and not foundObj.text then
+            foundObj.text = objText
+            foundObj.Description = objText
+            foundObj.Text = objText
+          end
+        else
+          local oIdx = #qObj.objectives + 1
+          tinsert(qObj.objectives, {
+            index = oIdx,
+            id = targetId,
+            Id = targetId,
+            type = objType,
+            typ = objType,
+            fulfilled = current,
+            ful = current,
+            Collected = current,
+            numFulfilled = current,
+            required = total,
+            req = total,
+            Needed = total,
+            numRequired = total,
+            finished = isFin,
+            fin = isFin,
+            Finished = isFin,
+            Completed = isFin,
+            text = objText,
+            Description = objText,
+            Text = objText,
+          })
+        end
+
+        local allFin = true
+        for _, o in ipairs(qObj.objectives) do
+          if not o.finished then
+            allFin = false
+            break
+          end
+        end
+        qObj.isComplete = allFin
+        qObj.finished = allFin
+        qObj.status = allFin and "COMPLETE" or "INCOMPLETE"
+
+        updatedQuests[questId] = true
+      end
+    end
+
+    lookupsDirty = true
+    for qId in pairs(updatedQuests) do
+      UpdatePartyMapNodes(qId, cleanSender)
+    end
+  end
+end
+
 -- ---------------------------------------------------------------------------
 -- Group State & Utilities
 -- ---------------------------------------------------------------------------
@@ -2435,14 +2704,29 @@ comms:RegisterEvent("QUEST_WATCH_UPDATE")
 
 local wasInGroup = false
 
-comms:SetScript("OnEvent", function()
-  if event == "CHAT_MSG_ADDON" then
-    local prefix, message, distribution, sender = arg1, arg2, arg3, arg4
+comms:SetScript("OnEvent", function(self, ev, a1, a2, a3, a4)
+  local curEvent = ev or event
+  if curEvent == "CHAT_MSG_ADDON" then
+    local prefix = a1 or arg1
+    local message = a2 or arg2
+    local distribution = a3 or arg3
+    local sender = a4 or arg4
     if prefix and (strsub(prefix, 1, #COMM_PREFIX) == COMM_PREFIX or strsub(prefix, 1, #VISIBILITY_PREFIX) == VISIBILITY_PREFIX) then
       local full = comms:HandleMultipartChunk(prefix, message, distribution, sender)
       if full then
         local realPrefix = (strsub(prefix, 1, #COMM_PREFIX) == COMM_PREFIX) and COMM_PREFIX or VISIBILITY_PREFIX
         comms:OnCommReceived(realPrefix, full, distribution, sender)
+      end
+    elseif prefix == "pfqe" then
+      comms:OnPfqeReceived(message, distribution, sender)
+    elseif prefix == "PFQUEST_SYNC_REQUEST" then
+      local myName = UnitName("player")
+      local cleanSender = sender
+      if cleanSender and strfind(cleanSender, "-") then
+        cleanSender = strsplit("-", cleanSender)
+      end
+      if comms:IsInGroup() and cleanSender ~= myName and comms:IsEnabled() then
+        comms:BroadcastFullQuestList()
       end
     end
 

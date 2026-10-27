@@ -295,4 +295,62 @@ end
 assert(foundLocalOnFirstHover, "Local player quests must be indexed into party lookups on very first hover")
 print("  ✓ PASS: Local player quests indexed immediately on initial hover")
 
+print("[TEST] 7. Verifying dual-protocol comms: pfqe inbound and outbound sync...")
+-- Test inbound pfqe V1 batch message from EpochFriend
+comms:OnPfqeReceived("V1|U6001Q100:3:5;", "PARTY", "EpochFriend")
+assert(env.pfQuest.partyQuests["EpochFriend"] ~= nil, "EpochFriend party data must exist")
+assert(env.pfQuest.partyQuests["EpochFriend"][100] ~= nil, "Quest 100 must be tracked for EpochFriend")
+assert(env.pfQuest.partyQuests["EpochFriend"][100].objectives[1].fulfilled == 3, "Fulfilled should be 3")
+assert(env.pfQuest.partyQuests["EpochFriend"][100].objectives[1].required == 5, "Required should be 5")
+
+local epochTip = env.CreateFrame("Frame", "EpochTip")
+epochTip.lines = {}
+epochTip.AddLine = function(self, text) table.insert(self.lines, text) end
+epochTip.NumLines = function(self) return #self.lines end
+epochTip.GetName = function(self) return "EpochTip" end
+
+comms:ShowWorldTooltip("Defias Bandit", epochTip)
+local foundEpochProgress = false
+for _, line in ipairs(epochTip.lines) do
+  if string.find(line, "EpochFriend") and string.find(line, "3/5") then
+    foundEpochProgress = true
+  end
+end
+assert(foundEpochProgress, "EpochFriend progress 3/5 must appear in Defias Bandit tooltip")
+print("  ✓ PASS: Inbound pfqe V1 packet deserialized and surfaced in tooltips")
+
+-- Test inbound REMOVEQ message
+comms:OnPfqeReceived("REMOVEQ:100:Defias Hunt", "PARTY", "EpochFriend")
+assert(env.pfQuest.partyQuests["EpochFriend"][100] == nil, "Quest 100 must be removed after REMOVEQ")
+print("  ✓ PASS: Inbound REMOVEQ cleanly purges party quest data")
+
+-- Test outbound BroadcastPfqeQuestUpdate
+sentAddonMessages = {}
+comms:BroadcastPfqeQuestUpdate(100)
+local foundPfqeOut = false
+for _, msg in ipairs(sentAddonMessages) do
+  if msg.prefix == "pfqe" and string.find(msg.text, "V1|") and string.find(msg.text, "Q100:") then
+    foundPfqeOut = true
+  end
+end
+assert(foundPfqeOut, "BroadcastPfqeQuestUpdate must send V1 pfqe packet with quest 100")
+print("  ✓ PASS: Outbound pfqe quest update correctly formatted and transmitted")
+
+-- Test PFQUEST_SYNC_REQUEST event handler
+sentAddonMessages = {}
+env.event = "CHAT_MSG_ADDON"
+env.arg1 = "PFQUEST_SYNC_REQUEST"
+env.arg2 = "1"
+env.arg3 = "PARTY"
+env.arg4 = "EpochFriend"
+commsScript()
+local syncReplied = false
+for _, msg in ipairs(sentAddonMessages) do
+  if msg.prefix == "pfqe" and string.find(msg.text, "V1|") then
+    syncReplied = true
+  end
+end
+assert(syncReplied, "PFQUEST_SYNC_REQUEST must trigger full quest list broadcast on pfqe prefix")
+print("  ✓ PASS: PFQUEST_SYNC_REQUEST triggers dual-protocol broadcast")
+
 print("\ntest_party_sync_and_tooltips PASSED successfully!")
