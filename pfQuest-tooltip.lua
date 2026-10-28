@@ -647,13 +647,11 @@ local function ShareQuestData(forceFullSync)
     end
 
     local changedEntries = {}
-    local currentState = {}
     local consolidatedObjectives = {}
 
     for targetKey, quests in pairs(myQuestMappings) do
         for _, data in ipairs(quests) do
             local stateKey = BuildStateString(targetKey, data)
-            currentState[stateKey] = true
 
             if forceFullSync or not lastBroadcastState[stateKey] then
                 if data.questId and data.targetId and data.targetType then

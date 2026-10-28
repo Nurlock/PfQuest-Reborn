@@ -1078,9 +1078,7 @@ function pfMap:DeleteNode(addon, title)
   elseif pfMap.titleIndex[addon] and pfMap.titleIndex[addon][title] then
     -- fast path: use reverse index to find exactly which (map, coords) to clear.
     -- A title may own several id-scoped storage keys; clear them all.
-    local clearedMaps = {}
     for map, coords_set in pairs(pfMap.titleIndex[addon][title]) do
-      clearedMaps[map] = true
       pfMap.dirtyMaps[map] = true
       if pfMap.nodes[addon] and pfMap.nodes[addon][map] then
         for coords in pairs(coords_set) do
@@ -1971,16 +1969,12 @@ function pfMap:UpdateMinimap()
   end
 end
 
-local zone
 pfMap:RegisterEvent("ZONE_CHANGED")
 pfMap:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 pfMap:RegisterEvent("MINIMAP_ZONE_CHANGED")
 pfMap:RegisterEvent("PLAYER_ENTERING_WORLD")
 pfMap:RegisterEvent("WORLD_MAP_UPDATE")
 pfMap:SetScript("OnEvent", function()
-  -- save current zone
-  zone = GetCurrentMapZone()
-
   -- set map to current zone when possible
   if event == "ZONE_CHANGED" or event == "MINIMAP_ZONE_CHANGED"
      or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" then
