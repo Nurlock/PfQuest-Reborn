@@ -806,8 +806,31 @@ local function ShareQuestData(forceFullSync)
     end
 end
 
+-- Cap attacker-controlled string lengths: legacy QUEST entries store the
+-- sender's target/quest/objective verbatim. Bounds keep one peer from
+-- growing partyQuestData without limit.
+local MAX_PARTY_NAME_LEN = 128
+local MAX_QUEST_TITLE_LEN = 256
+local MAX_OBJECTIVE_LEN = 256
+local MAX_OBJECTIVES_PER_TARGET = 40
+
+local function SanitizePartyString(s, maxLen)
+    if not s then return nil end
+    -- Strip chat/tooltip markup so a hostile peer cannot smuggle
+    -- clickable links or color codes into GameTooltip lines.
+    s = string.gsub(s, "|[cCHhTt]", "")
+    if string.len(s) > (maxLen or MAX_OBJECTIVE_LEN) then
+        s = string.sub(s, 1, maxLen or MAX_OBJECTIVE_LEN)
+    end
+    if s == "" then return nil end
+    return s
+end
+
 local function StorePartyObjective(sender, targetName, questId, questTitle, objectiveText, current, total)
+    targetName = SanitizePartyString(targetName, MAX_PARTY_NAME_LEN)
+    questTitle = SanitizePartyString(questTitle, MAX_QUEST_TITLE_LEN)
     if not targetName or not questTitle then return end
+    objectiveText = SanitizePartyString(objectiveText, MAX_OBJECTIVE_LEN)
     if not partyQuestData[sender] then partyQuestData[sender] = {} end
     if not partyQuestData[sender][targetName] then partyQuestData[sender][targetName] = {} end
     local list = partyQuestData[sender][targetName]
@@ -821,6 +844,7 @@ local function StorePartyObjective(sender, targetName, questId, questTitle, obje
             return
         end
     end
+    if table.getn(list) >= MAX_OBJECTIVES_PER_TARGET then return end
     table.insert(list, {
         quest = questTitle,
         questId = questId,
@@ -1449,13 +1473,33 @@ local function SyncResponseAllowed()
     return false
 end
 
+-- Per-sender inbound throttle: a buggy peer blasting V1/REMOVEQ must not
+-- hold us in SearchQuestID rebuilds. Coalesce bursts, never drop the last.
+local lastInboundBySender = {}
+local INBOUND_THROTTLE_SECS = 1
+
+local function InboundAllowed(sender)
+    if not sender then return true end
+    local now = GetTime() or 0
+    local last = lastInboundBySender[sender] or -INBOUND_THROTTLE_SECS
+    if now - last < INBOUND_THROTTLE_SECS then
+        return false
+    end
+    lastInboundBySender[sender] = now
+    return true
+end
+
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "CHAT_MSG_ADDON" then
         local prefix, message, channel, sender = arg1, arg2, arg3, arg4
         if prefix == "pfqe" then
             if IsSyncEnabled() then
                 if string.sub(message or "", 1, 3) == "V1|" then
-                    ProcessQuestData(sender, message)
+                    if InboundAllowed(sender) then
+                        ProcessQuestData(sender, message)
+                    elseif debugMode then
+                        print("|cff33ffccpfQuest-epoch:|r inbound batch from " .. tostring(sender) .. " throttled")
+                    end
                 elseif debugMode then
                     print("|cff33ffccpfQuest-epoch:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
                 end

@@ -632,10 +632,13 @@ function pfQuest:UpdateQuestlog()
   -- transient burst hiccup (unreadable slot, or the count under-report above),
   -- not a real turn-in. Require TWO consecutive misses before removing, so a
   -- one-scan flicker never deletes nodes or poisons pfQuest_history.
+  -- Collapsed quests count misses too (the collapsed flag only suppresses the
+  -- re-add scan, never a real turn-in): on the 2nd miss the REMOVE fires and
+  -- the REMOVE handler clears the stale collapsed flag.
   for questid, data in pairs(pfQuest.questlog) do
     if not pfQuest.questlog_tmp[questid] then
       data.gwMiss335 = (data.gwMiss335 or 0) + 1
-      if data.gwMiss335 >= 2 and not pfQuest.collapsedQuestIDs[questid] then
+      if data.gwMiss335 >= 2 then
         queueAdd({ data.title, questid, nil, "REMOVE" })
         change = true
       else
