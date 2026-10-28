@@ -24,7 +24,7 @@ env.pfQuest_config = {
 }
 env.pfQuest_history = {}
 env.pfQuest_Loc = setmetatable({}, { __index = function(_, k) return k end })
-env.pfUI = { api = { SanitizePattern = function(s) return s end, emulated = true } }
+env.pfUI = { api = { SanitizePattern = function(s) return s end, strsplit = function(d, s) if not s then return nil end return env.strsplit(d, s) end, emulated = true } }
 env.pfQuest = { questlog = {}, collapsedQuestIDs = {}, announcedQuests = {} }
 
 -- 1. Test StaticPopupDialogs in compat/client.lua does NOT call TEXT()

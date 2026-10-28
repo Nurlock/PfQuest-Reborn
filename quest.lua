@@ -211,6 +211,11 @@ pfQuest.questlog = {}
 pfQuest.questlog_tmp = {}
 pfQuest.announcedQuests = {}
 
+-- Single sort-mode rule shared by route and tracker so the two can never disagree.
+function pfQuest.GetQuestSortMode()
+  return pfQuest_config["trackerquestsort"] == "distance" and "distance" or "level"
+end
+
 -- Helper to add to queue with count tracking
 local function queueAdd(entry)
   pfQuest.queue[pfQuest.queueTail] = entry

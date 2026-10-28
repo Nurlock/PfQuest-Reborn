@@ -1,14 +1,5 @@
-local function strsplit(delimiter, subject)
-  if not subject then
-    return nil
-  end
-  local delimiter, fields = delimiter or ":", {}
-  local pattern = string.format("([^%s]+)", delimiter)
-  string.gsub(subject, pattern, function(c)
-    fields[table.getn(fields) + 1] = c
-  end)
-  return unpack(fields)
-end
+-- Split helper lives in compat (compat/pfUI.lua); don't duplicate it here.
+local strsplit = pfUI and pfUI.api and pfUI.api.strsplit
 
 local lastBroadcast = 0
 local version, remote, major, minor, fix, displayed, available

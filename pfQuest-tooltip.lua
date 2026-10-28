@@ -176,6 +176,34 @@ local function CleanupPartyData()
     end
 end
 
+-- One scan of the player's quest log into {[title] = {{objective, current,
+-- total}}}. Rebuild, sync deltas and pin tooltips all share it so the
+-- leader-board parse rule lives in exactly one place.
+local function GetLogObjectives()
+    local byTitle = {}
+    for qid = 1, GetNumQuestLogEntries() do
+        local questTitle = pfQuestCompat.GetQuestLogTitle(qid)
+        if questTitle then
+            local list = {}
+            byTitle[questTitle] = list
+            for i = 1, GetNumQuestLeaderBoards(qid) or 0 do
+                local text = GetQuestLogLeaderBoard(i, qid)
+                if text then
+                    local objName, current, total = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
+                    if objName then
+                        table.insert(list, {
+                            objective = string.gsub(objName, "^%s*(.-)%s*$", "%1"),
+                            current = tonumber(current),
+                            total = tonumber(total),
+                        })
+                    end
+                end
+            end
+        end
+    end
+    return byTitle
+end
+
 local function RebuildQuestMappings()
     if debugMode then
         print("|cff33ffccpfQuest-epoch:|r REBUILD - Checking pfDB...")
@@ -202,33 +230,12 @@ local function RebuildQuestMappings()
         print("|cff33ffccpfQuest-epoch:|r REBUILD - Starting quest mapping rebuild")
     end
 
-    local activeQuests = {}
-    for qid = 1, GetNumQuestLogEntries() do
-        local questTitle, _, _, _, _, _, complete = pfQuestCompat.GetQuestLogTitle(qid)
-        if questTitle then
-            activeQuests[questTitle] = {}
-            local numObjectives = GetNumQuestLeaderBoards(qid)
-
-            if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r REBUILD - Found quest: " .. questTitle .. " with " .. numObjectives .. " objectives")
-            end
-
-            for i = 1, numObjectives do
-                local text, objType, finished = GetQuestLogLeaderBoard(i, qid)
-                if text then
-                    local objName, current, total = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
-                    if objName then
-                        objName = string.gsub(objName, "^%s*(.-)%s*$", "%1")
-                        table.insert(activeQuests[questTitle], {
-                            objective = objName,
-                            current = tonumber(current),
-                            total = tonumber(total)
-                        })
-                        if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r REBUILD - Objective: " .. objName .. " (" .. current .. "/" .. total .. ")")
-                        end
-                    end
-                end
+    local activeQuests = GetLogObjectives()
+    if debugMode then
+        for questTitle, objectives in pairs(activeQuests) do
+            print("|cff33ffccpfQuest-epoch:|r REBUILD - Found quest: " .. questTitle .. " with " .. table.getn(objectives) .. " objectives")
+            for _, o in ipairs(objectives) do
+                print("|cff33ffccpfQuest-epoch:|r REBUILD - Objective: " .. o.objective .. " (" .. o.current .. "/" .. o.total .. ")")
             end
         end
     end
@@ -568,12 +575,10 @@ local function ShareQuestData(forceFullSync)
     local channel = GetGroupDistribution() or "PARTY"
     local myName = UnitName("player")
 
+    local logObjectives = GetLogObjectives()
     local activeQuests = {}
-    for qid = 1, GetNumQuestLogEntries() do
-        local questTitle = pfQuestCompat.GetQuestLogTitle(qid)
-        if questTitle then
-            activeQuests[questTitle] = true
-        end
+    for questTitle in pairs(logObjectives) do
+        activeQuests[questTitle] = true
     end
 
     for questTitle in pairs(previousQuestList) do
@@ -620,26 +625,12 @@ local function ShareQuestData(forceFullSync)
 
     for targetKey, quests in pairs(myQuestMappings) do
         for _, questData in ipairs(quests) do
-            for qid = 1, GetNumQuestLogEntries() do
-                local questTitle, _, _, _, _, _, complete = pfQuestCompat.GetQuestLogTitle(qid)
-
-                if questTitle == questData.quest then
-                    local numObjectives = GetNumQuestLeaderBoards(qid)
-
-                    for i = 1, numObjectives do
-                        local text, objType, finished = GetQuestLogLeaderBoard(i, qid)
-
-                        if text then
-                            local objName, current, total = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
-                            if objName then
-                                objName = string.gsub(objName, "^%s*(.-)%s*$", "%1")
-
-                                if objName == questData.objective then
-                                    questData.current = tonumber(current)
-                                    questData.total = tonumber(total)
-                                end
-                            end
-                        end
+            local cached = logObjectives[questData.quest]
+            if cached then
+                for _, obj in ipairs(cached) do
+                    if obj.objective == questData.objective then
+                        questData.current = obj.current
+                        questData.total = obj.total
                     end
                 end
             end
@@ -978,26 +969,8 @@ local function ProcessQuestData(sender, message)
 
         local touchedQuests = {}
 
-        -- One quest-log scan per batch: title -> list of {name,total}.
-        local logObjectives = {}
-        for qid = 1, GetNumQuestLogEntries() do
-            local logTitle = pfQuestCompat.GetQuestLogTitle(qid)
-            if logTitle then
-                local list = {}
-                local numObjectives = GetNumQuestLeaderBoards(qid)
-                for i = 1, numObjectives do
-                    local text = GetQuestLogLeaderBoard(i, qid)
-                    if text then
-                        local objName, curr, tot = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
-                        if objName then
-                            objName = string.gsub(objName, "^%s*(.-)%s*$", "%1")
-                            table.insert(list, { name = objName, total = tonumber(tot) })
-                        end
-                    end
-                end
-                logObjectives[logTitle] = list
-            end
-        end
+        -- One quest-log scan per batch, shared with rebuild and tooltips.
+        local logObjectives = GetLogObjectives()
 
         for _, entry in ipairs(entries) do
             -- Parse: UxxxQyyy:cc:tt or OxxxQyyy:cc:tt or IxxxQyyy:cc:tt
@@ -1024,7 +997,7 @@ local function ProcessQuestData(sender, message)
                     if cached then
                         for _, obj in ipairs(cached) do
                             if obj.total == total then
-                                objectiveText = obj.name
+                                objectiveText = obj.objective
                                 break
                             end
                         end
@@ -1300,28 +1273,13 @@ local function HookPfQuestTooltip()
         local featureEnabled = IsTooltipEnabled()
 
         if meta["quest"] and inParty and featureEnabled and targetKey then
-            for qid=1, GetNumQuestLogEntries() do
-                local qtitle, _, _, _, _, complete = pfQuestCompat.GetQuestLogTitle(qid)
-
-                if meta["quest"] == qtitle then
-                    local objectives = GetNumQuestLeaderBoards(qid)
-
-                    if objectives then
-                        for i=1, objectives do
-                            local text, type, finished = GetQuestLogLeaderBoard(i, qid)
-
-                            if text then
-                                local objName, current, total = string.match(text, "(.*):%s*(%d+)%s*/%s*(%d+)")
-                                if objName and current and total then
-                                    objName = string.gsub(objName, "^%s*(.-)%s*$", "%1")
-                                    if string.len(objName) > 0 then
-                                        CaptureMyQuestData(targetKey, qtitle, objName, tonumber(current), tonumber(total))
-                                        if tooltipName and tooltipName ~= targetKey then
-                                            CaptureMyQuestData(tooltipName, qtitle, objName, tonumber(current), tonumber(total))
-                                        end
-                                    end
-                                end
-                            end
+            local cached = GetLogObjectives()[meta["quest"]]
+            if cached then
+                for _, obj in ipairs(cached) do
+                    if string.len(obj.objective) > 0 then
+                        CaptureMyQuestData(targetKey, meta["quest"], obj.objective, obj.current, obj.total)
+                        if tooltipName and tooltipName ~= targetKey then
+                            CaptureMyQuestData(tooltipName, meta["quest"], obj.objective, obj.current, obj.total)
                         end
                     end
                 end
