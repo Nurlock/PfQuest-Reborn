@@ -816,7 +816,7 @@ local function SanitizePartyString(s, maxLen)
     if not s then return nil end
     -- Strip chat/tooltip markup so a hostile peer cannot smuggle
     -- clickable links or color codes into GameTooltip lines.
-    s = string.gsub(s, "|[cCHhTt]", "")
+    s = string.gsub(s, "|[cCHhTtRr]", "")
     if string.len(s) > (maxLen or MAX_OBJECTIVE_LEN) then
         s = string.sub(s, 1, maxLen or MAX_OBJECTIVE_LEN)
     end
@@ -895,6 +895,7 @@ local function ProcessQuestData(sender, message)
     -- Handle consolidated quest removal (new format: REMOVEQ:questId:questTitle).
     -- Title may itself contain colons, so anchor on the numeric id and take the rest.
     local removeQuestId, removeQuestTitle = string.match(message, "^REMOVEQ:(%d+):(.+)$")
+    removeQuestTitle = SanitizePartyString(removeQuestTitle, MAX_QUEST_TITLE_LEN) or ""
     if removeQuestId and removeQuestTitle then
         if debugMode then
             print("|cff33ffccpfQuest-epoch:|r REMOVEQ from " .. sender .. " - Quest: " .. removeQuestTitle .. " (ID: " .. removeQuestId .. ")")
@@ -1173,42 +1174,90 @@ local function ProcessQuestData(sender, message)
 end
 
 local function GetClassColor(playerName)
-    if playerName == UnitName("player") then
-        local _, class = UnitClass("player")
-        if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
-            local classColor = RAID_CLASS_COLORS[class]
-            return {classColor.r, classColor.g, classColor.b}
-        end
-    end
-
+    -- self first (no break: a nameless class falls through to group scan,
+    -- same as before), then raid or party members in unit order.
+    local units = { "player" }
     local numRaid = GetNumRaidMembers and GetNumRaidMembers() or 0
     if numRaid > 0 then
-        for i = 1, numRaid do
-            local name = UnitName("raid" .. i)
-            if name == playerName then
-                local _, class = UnitClass("raid" .. i)
-                if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
-                    local classColor = RAID_CLASS_COLORS[class]
-                    return {classColor.r, classColor.g, classColor.b}
-                end
-                break
-            end
-        end
+        for i = 1, numRaid do units[table.getn(units) + 1] = "raid" .. i end
     else
         for i = 1, (GetNumPartyMembers and GetNumPartyMembers() or 0) do
-            local name = UnitName("party" .. i)
-            if name == playerName then
-                local _, class = UnitClass("party" .. i)
-                if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
-                    local classColor = RAID_CLASS_COLORS[class]
-                    return {classColor.r, classColor.g, classColor.b}
+            units[table.getn(units) + 1] = "party" .. i
+        end
+    end
+    for _, unit in ipairs(units) do
+        if UnitName(unit) == playerName then
+            local _, class = UnitClass(unit)
+            if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
+                local c = RAID_CLASS_COLORS[class]
+                return { c.r, c.g, c.b }
+            end
+            if unit ~= "player" then break end
+        end
+    end
+    return { 1.0, 1.0, 1.0 }
+end
+
+-- One grouping/dedupe pass over partyQuestData for a single target.
+-- Both tooltip hooks share it so they can never render different lines.
+local function BuildQuestGroups(targetKey)
+    local questGroups = {}
+    for playerName, targets in pairs(partyQuestData) do
+        if targets[targetKey] then
+            for _, data in ipairs(targets[targetKey]) do
+                local group = questGroups[data.quest]
+                if not group then
+                    group = {}
+                    questGroups[data.quest] = group
                 end
-                break
+                local isDuplicate = false
+                for _, existing in ipairs(group) do
+                    if existing.player == playerName and existing.objective == data.objective then
+                        existing.current = data.current
+                        existing.total = data.total
+                        isDuplicate = true
+                        break
+                    end
+                end
+                if not isDuplicate then
+                    table.insert(group, {
+                        player = playerName,
+                        objective = data.objective,
+                        current = data.current,
+                        total = data.total
+                    })
+                end
             end
         end
     end
+    return questGroups
+end
 
-    return {1.0, 1.0, 1.0}
+-- Shared renderer: [!] quest header plus one class-colored line per
+-- member with a red-yellow-green progress ramp. Skips empty groups
+-- instead of printing bare spacer lines.
+local function AppendPartyLines(tooltip, questGroups)
+    if not next(questGroups) then return end
+    tooltip:AddLine(" ")
+    for questName, lines in pairs(questGroups) do
+        tooltip:AddLine("|cff555555[|cffffcc00!|cff555555]|r " .. questName, 1, 1, 0)
+        for _, line in ipairs(lines) do
+            local classColor = GetClassColor(line.player)
+            local perc = line.current / line.total
+            local r, g
+            if perc <= 0.5 then
+                r, g = 1, perc * 2
+            else
+                r, g = 2 - perc * 2, 1
+            end
+            local coloredName = string.format("|cFF%02x%02x%02x%s|r",
+                classColor[1] * 255, classColor[2] * 255, classColor[3] * 255, line.player)
+            tooltip:AddLine(string.format("|cffaaaaaa- |r%s: %s (%d/%d)",
+                coloredName, line.objective, line.current, line.total), r, g, 0)
+        end
+    end
+    tooltip:AddLine(" ")
+    tooltip:Show()
 end
 
 local function HookGameTooltip()
@@ -1219,73 +1268,7 @@ local function HookGameTooltip()
 
         if not IsInGroup() or not IsTooltipEnabled() then return end
 
-        local matchedKey = nil
-        local questGroups = {}
-
-        for playerName, targets in pairs(partyQuestData) do
-            if targets[unitName] then
-                matchedKey = unitName
-                for _, data in ipairs(targets[unitName]) do
-                    if not questGroups[data.quest] then
-                        questGroups[data.quest] = {}
-                    end
-
-                    local isDuplicate = false
-                    for _, existing in ipairs(questGroups[data.quest]) do
-                        if existing.player == playerName and existing.objective == data.objective then
-                            existing.current = data.current
-                            existing.total = data.total
-                            isDuplicate = true
-                            break
-                        end
-                    end
-
-                    if not isDuplicate then
-                        table.insert(questGroups[data.quest], {
-                            player = playerName,
-                            objective = data.objective,
-                            current = data.current,
-                            total = data.total
-                        })
-                    end
-                end
-            end
-        end
-
-        if not matchedKey then return end
-
-        self:AddLine(" ")
-
-        for questName, lines in pairs(questGroups) do
-            local symbol = "|cff555555[|cffffcc00!|cff555555]|r "
-            self:AddLine(symbol .. questName, 1, 1, 0)
-
-            for _, line in ipairs(lines) do
-                local classColor = GetClassColor(line.player)
-                local perc = line.current / line.total
-                local r, g, b
-
-                if perc <= 0.5 then
-                    perc = perc * 2
-                    r = 1
-                    g = perc
-                    b = 0
-                else
-                    perc = perc * 2 - 1
-                    r = 1 - perc
-                    g = 1
-                    b = 0
-                end
-
-                local cr, cg, cb = classColor[1] * 255, classColor[2] * 255, classColor[3] * 255
-                local coloredName = string.format("|cFF%02x%02x%02x%s|r", cr, cg, cb, line.player)
-                local displayText = string.format("|cffaaaaaa- |r%s: %s (%d/%d)", coloredName, line.objective, line.current, line.total)
-                self:AddLine(displayText, r, g, b)
-            end
-        end
-
-        self:AddLine(" ")
-        self:Show()
+        AppendPartyLines(self, BuildQuestGroups(unitName))
     end)
 
     return true
@@ -1373,70 +1356,8 @@ local function HookPfQuestTooltip()
         if hasPartyData and matchedKey then
             orig_ShowTooltip(self, meta, tooltip)
 
-            local unitName, unit = tooltip:GetUnit()
-            if not unit then
-                local questGroups = {}
-
-                for playerName, targets in pairs(partyQuestData) do
-                    if targets[matchedKey] then
-                        for _, data in ipairs(targets[matchedKey]) do
-                            if not questGroups[data.quest] then
-                                questGroups[data.quest] = {}
-                            end
-
-                            local isDuplicate = false
-                            for _, existing in ipairs(questGroups[data.quest]) do
-                                if existing.player == playerName and existing.objective == data.objective then
-                                    existing.current = data.current
-                                    existing.total = data.total
-                                    isDuplicate = true
-                                    break
-                                end
-                            end
-
-                            if not isDuplicate then
-                                table.insert(questGroups[data.quest], {
-                                    player = playerName,
-                                    objective = data.objective,
-                                    current = data.current,
-                                    total = data.total
-                                })
-                            end
-                        end
-                    end
-                end
-
-                tooltip:AddLine(" ")
-
-                for questName, lines in pairs(questGroups) do
-                    local symbol = "|cff555555[|cffffcc00!|cff555555]|r "
-                    tooltip:AddLine(symbol .. questName, 1, 1, 0)
-
-                    for _, line in ipairs(lines) do
-                        local classColor = GetClassColor(line.player)
-                        local perc = line.current / line.total
-                        local r, g, b
-
-                        if perc <= 0.5 then
-                            perc = perc * 2
-                            r = 1
-                            g = perc
-                            b = 0
-                        else
-                            perc = perc * 2 - 1
-                            r = 1 - perc
-                            g = 1
-                            b = 0
-                        end
-
-                        local cr, cg, cb = classColor[1] * 255, classColor[2] * 255, classColor[3] * 255
-                        local coloredName = string.format("|cFF%02x%02x%02x%s|r", cr, cg, cb, line.player)
-                        local displayText = string.format("|cffaaaaaa- |r%s: %s (%d/%d)", coloredName, line.objective, line.current, line.total)
-                        tooltip:AddLine(displayText, r, g, b)
-                    end
-                end
-
-                tooltip:AddLine(" ")
+            if not select(2, tooltip:GetUnit()) then
+                AppendPartyLines(tooltip, BuildQuestGroups(matchedKey))
             end
 
             tooltip:Show()
@@ -1584,7 +1505,7 @@ eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
             if cleanSender and string.find(cleanSender, "-") then
                 cleanSender = string.match(cleanSender, "^([^-]+)")
             end
-            if IsInGroup() and IsSyncEnabled() and cleanSender ~= myName and sender ~= myName then
+            if IsInGroup() and IsSyncEnabled() and cleanSender ~= myName and sender ~= myName and IsTrustedSender(sender, channel) then
                 if SyncResponseAllowed() then
                     if debugMode then
                         print("|cff33ffccpfQuest-epoch:|r Received sync request from " .. tostring(sender) .. ", rebuilding and broadcasting current data")

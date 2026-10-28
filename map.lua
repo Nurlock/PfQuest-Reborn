@@ -1195,7 +1195,7 @@ function pfMap:NodeClick()
   if IsShiftKeyDown() then
     if this.questid and this.texture and this.layer < 5 then
       -- mark questnode as done
-      pfQuest_history[this.questid] = { time(), UnitLevel("player") }
+      pfQuest_history[tonumber(this.questid) or this.questid] = { time(), UnitLevel("player") }
     end
 
     if this.node and this.title and this.node[this.title] then

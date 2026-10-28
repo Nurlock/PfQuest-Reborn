@@ -31,8 +31,9 @@ local function OnEnter()
     pfDatabase:ShowExtendedTooltip(this.id, GameTooltip, this, "ANCHOR_LEFT", 0, -10)
 
     -- add level of completion
-    if pfQuest_history[this.id] and pfQuest_history[this.id][2] then
-      local level = pfQuest_history[this.id][2]
+    local hkey = tonumber(this.id) or this.id
+    if pfQuest_history[hkey] and pfQuest_history[hkey][2] then
+      local level = pfQuest_history[hkey][2]
       local color = pfQuestCompat.GetDifficultyColor(level)
       GameTooltip:AddLine("|cffffffff" .. pfQuest_Loc["Completed Level"] .. ": |r" .. level, color.r, color.g, color.b)
     end
@@ -64,7 +65,7 @@ end
 
 local function RemoveOnClick()
   if this.entry.id then
-    pfQuest_history[this.entry.id] = nil
+    pfQuest_history[tonumber(this.entry.id) or this.entry.id] = nil
     this.view:ReloadJournal()
   end
 end
@@ -120,8 +121,8 @@ local function UpdateEntry(self, index)
     local qid = tonumber(self[index].id) or UNKNOWN
     local qloc = pfDB and pfDB["quests"] and pfDB["quests"]["loc"]
     local name = (qloc and qloc[self[index].id] and qloc[self[index].id]["T"]) or self[index].id
-    local hist = pfQuest_history and pfQuest_history[self[index].id]
-    if not hist then
+    local hist = pfQuest_history and pfQuest_history[tonumber(self[index].id) or self[index].id]
+    if type(hist) ~= "table" or type(hist[1]) ~= "number" then
       self[index]:Hide()
       return
     end
@@ -145,21 +146,23 @@ local function ReloadJournal(self)
   local lastcolumn, column
 
   for questid, data in pfQuest:SortedPairs(pfQuest_history, 1) do
-    column = data[1] == 0 and UNKNOWN or date("%A, %B %d (%Y)", data[1])
+    if type(data) == "table" and type(data[1]) == "number" then
+      column = data[1] == 0 and UNKNOWN or date("%A, %B %d (%Y)", data[1])
 
-    if column ~= lastcolumn then -- add columns to the view
-      lastcolumn = column
-      journal[index] = journal[index] or {}
-      journal[index].column = column
-      journal[index].id = nil
-      index = index + 1
-    end
+      if column ~= lastcolumn then -- add columns to the view
+        lastcolumn = column
+        journal[index] = journal[index] or {}
+        journal[index].column = column
+        journal[index].id = nil
+        index = index + 1
+      end
 
-    if not collapsed[column] then -- add regular entries
-      journal[index] = journal[index] or {}
-      journal[index].column = nil
-      journal[index].id = questid
-      index = index + 1
+      if not collapsed[column] then -- add regular entries
+        journal[index] = journal[index] or {}
+        journal[index].column = nil
+        journal[index].id = questid
+        index = index + 1
+      end
     end
   end
 

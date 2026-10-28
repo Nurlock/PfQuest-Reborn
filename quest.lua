@@ -371,10 +371,11 @@ pfQuest:SetScript("OnUpdate", function()
         pfQuest:Debug("|cffff5555Remove Quest: " .. entry[1] .. " (" .. entry[2] .. ")")
 
         -- write pfQuest.questlog history
+        local hkey = tonumber(entry[2]) or entry[2]
         if entry[1] == pfQuest.abandon then
-          pfQuest_history[entry[2]] = nil
+          pfQuest_history[hkey] = nil
         else
-          pfQuest_history[entry[2]] = { time(), UnitLevel("player") }
+          pfQuest_history[hkey] = { time(), UnitLevel("player") }
           if not (pfQuest.lock and pfQuest.lock > GetTime()) and not pfQuest.announcedQuests[entry[2]] then
             pfQuest.announcedQuests[entry[2]] = true
             if pfQuestAnnounce and pfQuestAnnounce.AnnounceQuest then
