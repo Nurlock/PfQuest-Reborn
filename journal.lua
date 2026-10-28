@@ -183,6 +183,14 @@ local function ReloadJournal(self)
     self[id].column = journal[id + self.offset] and journal[id + self.offset].column or nil
     UpdateEntry(self, id)
   end
+
+  -- sync scrollbar (OnValueChanged no-ops when already equal: no loop)
+  local maxOffset = max(0, table.getn(journal) - maxcolumns)
+  if pfJournal.scroll then
+    pfJournal.scroll:SetMinMaxValues(0, maxOffset)
+    pfJournal.scroll:SetValue(self.offset or 0)
+    if maxOffset == 0 then pfJournal.scroll:Hide() else pfJournal.scroll:Show() end
+  end
 end
 
 -- browser window
@@ -261,6 +269,27 @@ pfJournal.entries:SetScript("OnUpdate", function()
   this.tick = GetTime() + 0.5
   pfJournal.dirty = nil
   this:ReloadJournal()
+end)
+
+-- Visible scrollbar bound to the entries offset (wheel already worked).
+pfJournal.scroll = CreateFrame("Slider", nil, pfJournal)
+pfJournal.scroll:SetWidth(12)
+pfJournal.scroll:SetPoint("TOPRIGHT", pfJournal, "TOPRIGHT", -6, -35)
+pfJournal.scroll:SetPoint("BOTTOMRIGHT", pfJournal, "BOTTOMRIGHT", -6, 10)
+pfJournal.scroll:SetOrientation("VERTICAL")
+pfJournal.scroll:SetMinMaxValues(0, 0)
+pfJournal.scroll:SetValue(0)
+do
+  local thumb = pfJournal.scroll:CreateTexture(nil, "OVERLAY")
+  thumb:SetTexture(0.2, 1, 0.8, 0.8)
+  pfJournal.scroll:SetThumbTexture(thumb)
+end
+pfJournal.scroll:SetScript("OnValueChanged", function()
+  local v = math.floor(this:GetValue() + 0.5)
+  if pfJournal.entries.offset ~= v then
+    pfJournal.entries.offset = v
+    pfJournal.entries:ReloadJournal()
+  end
 end)
 
 -- Mark journal dirty when shown (initial load)

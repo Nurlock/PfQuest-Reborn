@@ -2047,6 +2047,21 @@ function pfDatabase:SearchQuestID(id, meta, maps)
     end
   end
 
+  -- Party quests have no qlogid; mirror the sender's progress into parse_obj
+  -- with the same DONE/PROG values so finished objectives filter out.
+  if meta["partyDone"] and quests[id]["obj"] then
+    local q_obj = quests[id]["obj"]
+    local function markDone(kind, ids, locTbl)
+      if not ids or not locTbl then return end
+      for _, x in pairs(ids) do
+        if locTbl[x] and meta.partyDone[locTbl[x]] then parse_obj[kind][x] = "DONE" end
+      end
+    end
+    markDone("U", q_obj["U"], pfDB.units and pfDB.units.loc)
+    markDone("O", q_obj["O"], pfDB.objects and pfDB.objects.loc)
+    markDone("I", q_obj["I"], pfDB.items and pfDB.items.loc)
+  end
+
   -- search quest-objectives
   if quests[id]["obj"] then
     local skip_objects

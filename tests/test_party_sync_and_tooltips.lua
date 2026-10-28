@@ -405,13 +405,23 @@ end
 epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:0:10;")
 local m0 = lastPartyMeta()
 assert(m0 and m0.partyComplete == false, "0/10 party quest must mark partyComplete=false")
+assert(not m0.partyDone or not m0.partyDone["Defias Bandit"], "0/10 target must not be marked done")
 -- 10/10: proven complete may use the gold turn-in look
 env.AdvanceTime(2)
 epoch.PumpSyncTimers()
 epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:10:10;")
 local m1 = lastPartyMeta()
 assert(m1 and m1.partyComplete == true, "10/10 party quest must mark partyComplete=true")
+assert(m1.partyDone and m1.partyDone["Defias Bandit"], "10/10 target must be marked done")
 print("  ✓ PASS: Party ender marker follows sender progress")
+
+print("[TEST] 19. Verifying periodic full re-sync while grouped...")
+sentAddonMessages = {}
+epoch.RebuildQuestMappings()
+env.AdvanceTime(400)
+epoch.PumpSyncTimers()
+assert(#sentAddonMessages > 0, "idle grouped client must full-share every few minutes")
+print("  ✓ PASS: Periodic full re-sync fires")
 
 print("[TEST] 17. Verifying QUEST_LOG_UPDATE is debounced...")
 sentAddonMessages = {}

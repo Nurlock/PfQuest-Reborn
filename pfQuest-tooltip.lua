@@ -97,6 +97,32 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
     -- Party completion comes from the sender's live progress, never from our
     -- log: without it every party ender would render the gold turn-in marker.
     local partyComplete = false
+    local partyDone = nil
+    do
+        local known = false
+        local done = true
+        local targets = partyQuestData and partyQuestData[playerName]
+        if targets then
+            for targetName, list in pairs(targets) do
+                local tAny, tDone = false, true
+                for _, data in ipairs(list) do
+                    if data.quest == qTitle and (not qId or not data.questId or data.questId == qId) then
+                        known = true
+                        tAny = true
+                        if not (data.total and data.total >= 1 and data.current and data.current >= data.total) then
+                            done = false
+                            tDone = false
+                        end
+                    end
+                end
+                if tAny and tDone then
+                    partyDone = partyDone or {}
+                    partyDone[targetName] = true
+                end
+            end
+        end
+        if known then partyComplete = done end
+    end
     do
         local known = false
         local done = true
@@ -128,6 +154,7 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
             questid = qId,
             color = playerName,
             partyComplete = partyComplete,
+            partyDone = partyDone,
         }
         pfDatabase:SearchQuestID(qId, meta)
         pfMap:RequestUpdate()
@@ -1426,6 +1453,12 @@ end
 
 -- Test hook: advance pending timers without a frame tick.
 -- Uses GetTime deltas so mocked AdvanceTime drives it deterministically.
+-- Slow safety net: a full re-share every few minutes while grouped heals
+-- anything missed (reloads, dropped batches). Idle cost is ~zero: with no
+-- changes ShareQuestData sends nothing.
+local fullSyncLast = nil
+local FULL_SYNC_INTERVAL_SECS = 300
+
 local function PumpSyncTimers()
     local now = (GetTime and GetTime()) or 0
     if inboundFlushLast == nil then inboundFlushLast = now end
@@ -1441,6 +1474,12 @@ local function PumpSyncTimers()
             RebuildQuestMappings()
             ShareQuestData()
         end
+    end
+    if fullSyncLast == nil then fullSyncLast = now end
+    if IsInGroup() and IsSyncEnabled() and now - fullSyncLast >= FULL_SYNC_INTERVAL_SECS then
+        fullSyncLast = now
+        RebuildQuestMappings()
+        ShareQuestData(true)
     end
 end
 
