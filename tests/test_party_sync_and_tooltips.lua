@@ -192,6 +192,7 @@ print("  \u2713 PASS: Outbound pfqe quest update correctly formatted and transmi
 print("[TEST] 4b. Verifying abandon prunes our own mirror...")
 assert(epoch.partyQuestData["LocalPlayer"] ~= nil, "self-echo must exist after share")
 env.GetNumQuestLogEntries = function() return 0 end
+epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
 sentAddonMessages = {}
 epoch.ShareQuestData(true)
 assert(epoch.partyQuestData["LocalPlayer"] == nil, "abandoned quest must leave our mirror")
@@ -201,6 +202,7 @@ for _, msg in ipairs(sentAddonMessages) do
 end
 assert(foundRemove, "abandon must broadcast REMOVEQ to peers")
 env.GetNumQuestLogEntries = function() return 1 end
+epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
 print("  \u2713 PASS: Abandon prunes our mirror and notifies peers")
 
 print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST is ignored (no handshake)...")
