@@ -1831,7 +1831,7 @@ function pfMap:UpdateNodes()
         elseif pfQuest_config["showcluster"] == "0" and pfMap.pins[i].cluster then
           pfMap.pins[i]:Hide()
         -- hide individual quest spawns
-        elseif pfQuest_config["showspawn"] == "0" and addon == "PFQUEST" and not pfMap.pins[i].texture then
+        elseif pfQuest_config["showspawn"] == "0" and (addon == "PFQUEST" or addon == "PARTY") and not pfMap.pins[i].texture then
           pfMap.pins[i]:Hide()
         else
           -- populate quest list on map (display title, not storage key)
@@ -2055,7 +2055,7 @@ function pfMap:UpdateMinimap()
 
           if pfQuest_config["showclustermini"] == "0" and pfMap.mpins[i].cluster then
             pfMap.mpins[i]:Hide()
-          elseif pfQuest_config["showspawnmini"] == "0" and addon == "PFQUEST" and not pfMap.mpins[i].texture then
+          elseif pfQuest_config["showspawnmini"] == "0" and (addon == "PFQUEST" or addon == "PARTY") and not pfMap.mpins[i].texture then
             pfMap.mpins[i]:Hide()
           else
             pfMap.mpins[i]:ClearAllPoints()
