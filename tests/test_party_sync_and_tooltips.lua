@@ -1,5 +1,5 @@
 -- Test Suite: Pure pfQuest-epoch Party Sync & Tooltips
--- Verifies pfqe protocol (V1 batches, REMOVEQ, PFQUEST_SYNC_REQUEST), raid support, and tooltips.
+-- Verifies pfqe protocol (V1 batches, REMOVEQ), PARTY-only routing, and tooltips.
 
 local mock = require("tests.mock_wow_api")
 local env = mock.create_env()
@@ -188,22 +188,28 @@ end
 assert(foundOutboundV1, "ShareQuestData must broadcast V1 entry for U116Q100:3:10;")
 print("  ✓ PASS: Outbound pfqe quest update correctly formatted and transmitted")
 
-print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST inbound triggers response...")
+print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST is ignored (no handshake)...")
 sentAddonMessages = {}
 env.arg1 = "PFQUEST_SYNC_REQUEST"
 env.arg2 = "1"
 env.arg3 = "PARTY"
 env.arg4 = "PartyFriend"
 epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "PartyFriend")
+assert(#sentAddonMessages == 0, "sync requests must not trigger a response (handshake removed)")
+print("  ✓ PASS: PFQUEST_SYNC_REQUEST ignored")
 
-local syncReplied = false
+print("[TEST] 5b. Verifying login sends one pull request...")
+env.GetNumRaidMembers = function() return 0 end
+sentAddonMessages = {}
+epoch.eventFrame:FireScript("OnEvent", "PLAYER_ENTERING_WORLD")
+local reqCount, shareCount = 0, 0
 for _, msg in ipairs(sentAddonMessages) do
-  if msg.prefix == "pfqe" and string.find(msg.text, "V1|") then
-    syncReplied = true
-  end
+  if msg.prefix == "PFQUEST_SYNC_REQUEST" and msg.dist == "PARTY" then reqCount = reqCount + 1 end
+  if msg.prefix == "pfqe" then shareCount = shareCount + 1 end
 end
-assert(syncReplied, "PFQUEST_SYNC_REQUEST from party member must trigger full quest list broadcast on pfqe")
-print("  ✓ PASS: Inbound PFQUEST_SYNC_REQUEST triggers pfqe broadcast")
+assert(reqCount == 1, "login must send exactly one sync pull request, got " .. reqCount)
+assert(shareCount >= 1, "login must also push our full state")
+print("  ✓ PASS: Login pulls once and pushes full state")
 
 print("[TEST] 6. Verifying raid traffic stays on PARTY (flood safety)...")
 env.GetNumRaidMembers = function() return 10 end

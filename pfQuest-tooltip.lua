@@ -1327,26 +1327,6 @@ eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 eventFrame:RegisterEvent("RAID_ROSTER_UPDATE")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("QUEST_LOG_UPDATE")
-
--- Minimum seconds between sync responses so a 40-player zone-in does not
--- produce an N-to-N broadcast storm. Outbound progress is unaffected.
-local syncResponseCooldown = 0
-
-local function SyncResponseAllowed()
-    if (GetTime() or 0) >= syncResponseCooldown then
-        -- deterministic spread: 3-8s by name hash keeps clients from
-        -- re-syncing in lockstep after a mass zone-in
-        local myName = UnitName("player") or ""
-        local h = 0
-        for i = 1, string.len(myName) do
-            h = h + string.byte(myName, i)
-        end
-        syncResponseCooldown = (GetTime() or 0) + 3 + (h % 6)
-        return true
-    end
-    return false
-end
-
 -- Per-sender inbound throttle: a buggy peer blasting V1 batches must not
 -- hold us in SearchQuestID rebuilds. Bursts queue per sender and flush
 -- in order; batches are deltas, so newest-wins would lose data.
@@ -1474,38 +1454,21 @@ eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
             if IsSyncEnabled() and IsTrustedSender(sender, channel) then
                 HandlePfqeMessage(sender, message)
             end
-        elseif prefix == "PFQUEST_SYNC_REQUEST" then
-            local myName = UnitName("player")
-            local cleanSender = sender
-            if cleanSender and string.find(cleanSender, "-") then
-                cleanSender = string.match(cleanSender, "^([^-]+)")
-            end
-            if IsInGroup() and IsSyncEnabled() and cleanSender ~= myName and sender ~= myName and IsTrustedSender(sender, channel) then
-                if SyncResponseAllowed() then
-                    if debugMode then
-                        print("|cff33ffccpfQuest-epoch:|r Received sync request from " .. tostring(sender) .. ", rebuilding and broadcasting current data")
-                    end
-                    RebuildQuestMappings()
-                    ShareQuestData(true)
-                elseif debugMode then
-                    print("|cff33ffccpfQuest-epoch:|r sync request from " .. tostring(sender) .. " throttled")
-                end
-            end
         end
     elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
         CleanupPartyData()
         if IsInGroup() and IsSyncEnabled() then
             RebuildQuestMappings()
-            local channel = GetGroupDistribution() or "PARTY"
-            SendAddonMessage("PFQUEST_SYNC_REQUEST", "1", channel)
             ShareQuestData(true)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         CleanupPartyData()
         if IsInGroup() and IsSyncEnabled() then
             RebuildQuestMappings()
-            local channel = GetGroupDistribution() or "PARTY"
-            SendAddonMessage("PFQUEST_SYNC_REQUEST", "1", channel)
+            -- One request per login: pulls full state from peers that never
+            -- push unprompted (Epoch has no periodic share). We never answer
+            -- requests, so this cannot amplify into a storm.
+            SendAddonMessage("PFQUEST_SYNC_REQUEST", "1", GetGroupDistribution() or "PARTY")
             ShareQuestData(true)
         end
     elseif event == "QUEST_LOG_UPDATE" then
@@ -1540,11 +1503,9 @@ configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
 
         if IsInGroup() and IsSyncEnabled() then
             RebuildQuestMappings()
-            local channel = GetGroupDistribution() or "PARTY"
             if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r Addon loaded, rebuilding and requesting sync from " .. channel)
+                print("|cff33ffccpfQuest-epoch:|r Addon loaded, rebuilding and sharing")
             end
-            SendAddonMessage("PFQUEST_SYNC_REQUEST", "1", channel)
             ShareQuestData(true)
         end
 
@@ -1562,8 +1523,6 @@ configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
                         end
                         RebuildQuestMappings()
                         if IsInGroup() and IsSyncEnabled() then
-                            local channel = GetGroupDistribution() or "PARTY"
-                            SendAddonMessage("PFQUEST_SYNC_REQUEST", "1", channel)
                             ShareQuestData(true)
                         end
                     end
@@ -1648,9 +1607,7 @@ SlashCmdList["PFQUEREBUILD"] = function(msg)
     print("|cff33ffccpfQuest-epoch:|r Manually triggering RebuildQuestMappings...")
     RebuildQuestMappings()
     if IsInGroup() and IsSyncEnabled() then
-        local channel = GetGroupDistribution() or "PARTY"
-        print("|cff33ffccpfQuest-epoch:|r Sending sync request and sharing data...")
-        SendAddonMessage("PFQUEST_SYNC_REQUEST", "1", channel)
+        print("|cff33ffccpfQuest-epoch:|r Sharing data...")
         ShareQuestData(true)
     end
     print("|cff33ffccpfQuest-epoch:|r Done! Run /pfqd to see results.")
