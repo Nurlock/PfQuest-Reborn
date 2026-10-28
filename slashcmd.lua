@@ -74,7 +74,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: debug
   if arg1 == "debug" then
-    pfQuest_config.debug = not pfQuest_config.debug
+    pfQuestConfig:Toggle("debug")
     DEFAULT_CHAT_FRAME:AddMessage(
       "|cff33ffccpf|cffffffffQuest Debug Mode: " .. (pfQuest_config.debug and "|cff33ff33ON" or "|cffff3333OFF")
     )
@@ -120,7 +120,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
   -- argument: quests
   if arg1 == "quests" then
     local maps = pfDatabase:SearchQuests(meta)
-    pfMap.queue_update = GetTime()
+    pfMap:RequestUpdate()
     return
   end
 
@@ -322,7 +322,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: lock
   if arg1 == "lock" then
-    pfQuest_config.lock = not pfQuest_config.lock
+    pfQuestConfig:Toggle("lock")
     DEFAULT_CHAT_FRAME:AddMessage(
       "|cff33ffccpf|cffffffffQuest Tracker: " .. (pfQuest_config.lock and "Locked" or "Unlocked")
     )
@@ -339,12 +339,9 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: arrow
   if arg1 == "arrow" then
-    if pfQuest_config["arrow"] == "1" then
-      pfQuest_config["arrow"] = "0"
-      pfQuest.route.arrow:Hide()
-    else
-      pfQuest_config["arrow"] = "1"
-    end
+    local off = pfQuest_config["arrow"] == "1"
+    pfQuestConfig:Set("arrow", off and "0" or "1")
+    pfQuest.route:SetArrowVisible(not off)
     return
   end
 
@@ -376,9 +373,8 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: <text>
   if type(arg1) == "string" then
-    if pfBrowser then
-      pfBrowser:Show()
-      pfBrowser.input:SetText((string.gsub(string.format("%s %s", arg1, arg2), "^%s*(.-)%s*$", "%1")))
+    if pfBrowser and pfBrowser.SearchText then
+      pfBrowser:SearchText(string.gsub(string.format("%s %s", arg1, arg2), "^%s*(.-)%s*$", "%1"))
     end
     return
   end

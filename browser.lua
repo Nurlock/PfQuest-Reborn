@@ -204,7 +204,7 @@ local function ResultButtonClick()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     else
       local maps = pfDatabase:SearchMobID(this.id, meta)
-      pfMap.queue_update = GetTime()
+      pfMap:RequestUpdate()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
   elseif this.btype == "objects" then
@@ -213,7 +213,7 @@ local function ResultButtonClick()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     else
       local maps = pfDatabase:SearchObjectID(this.id, meta)
-      pfMap.queue_update = GetTime()
+      pfMap:RequestUpdate()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
   end
@@ -256,7 +256,7 @@ local function ResultButtonClickSpecial()
   elseif this.buttonType == "V" then
     maps = pfDatabase:SearchVendor(param, meta)
   end
-  pfMap.queue_update = GetTime()
+  pfMap:RequestUpdate()
   pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
 end
 
@@ -658,6 +658,7 @@ local function CreateBrowseWindow(fname, name, parent, anchor, x, y)
 end
 
 -- browser window
+
 pfBrowser = CreateFrame("Frame", "pfQuestBrowser", UIParent)
 pfBrowser:Hide()
 pfBrowser:SetWidth(640)
@@ -666,6 +667,12 @@ pfBrowser:SetPoint("CENTER", 0, 0)
 pfBrowser:SetFrameStrata("FULLSCREEN_DIALOG")
 pfBrowser:SetMovable(true)
 pfBrowser:EnableMouse(true)
+
+-- Single writer for the browser search box (slashcmd search goes through here).
+function pfBrowser:SearchText(t)
+  self:Show()
+  self.input:SetText(t)
+end
 pfBrowser:RegisterEvent("PLAYER_ENTERING_WORLD")
 pfBrowser:SetScript("OnEvent", function()
   -- queue favorites for incremental processing rather than running all
@@ -935,7 +942,7 @@ pfBrowser:SetScript("OnUpdate", function()
     if ftype == "quests" then
       pfDatabase:SearchQuestID(id)
     end
-    pfMap.queue_update = GetTime()
+    pfMap:RequestUpdate()
   end
 
   -- run pending search once debounce interval has elapsed

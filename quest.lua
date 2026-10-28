@@ -27,19 +27,8 @@ pfQuest.collapsedQuestIDs = {}
 
 local function questInPlayerZone(questid)
   local playerZone = pfMap and pfMap.playerZone
-  if not playerZone or not pfMap.nodes or not pfMap.nodes["PFQUEST"] or not pfMap.nodes["PFQUEST"][playerZone] then
-    return nil
-  end
-
-  for _, coordNode in pairs(pfMap.nodes["PFQUEST"][playerZone]) do
-    for _, node in pairs(coordNode) do
-      if (node.questid or node.title) == questid then
-        return true
-      end
-    end
-  end
-
-  return nil
+  if not playerZone or not pfMap.ZoneHasQuest then return nil end
+  return pfMap:ZoneHasQuest(playerZone, questid)
 end
 
 local function questAffectsCurrentZoneTracker(questid)
@@ -82,7 +71,7 @@ CollapseQuestHeader = function(index)
         pfQuest.tracker.RefreshZoneTracker()
       end
     else
-      pfMap.queue_update = GetTime()
+      pfMap:RequestUpdate()
     end
   end
   return _CollapseQuestHeader(index)
@@ -117,7 +106,7 @@ ExpandQuestHeader = function(index)
           pfQuest.tracker.RefreshZoneTracker()
         end
       else
-        pfMap.queue_update = GetTime()
+        pfMap:RequestUpdate()
       end
     end
     -- If not user-initiated (e.g. vanilla expanding a zone on quest accept/turn-in),
@@ -244,9 +233,8 @@ pfQuest:SetScript("OnEvent", function()
       -- Link collapsedQuestIDs to pfQuest_config so collapse state survives reload.
       -- The wrappers write to pfQuest.collapsedQuestIDs directly; since it is the
       -- same table as pfQuest_config.collapsedQuestIDs, the SavedVar stays in sync.
-      if pfQuest_config then
-        pfQuest_config.collapsedQuestIDs = pfQuest_config.collapsedQuestIDs or {}
-        pfQuest.collapsedQuestIDs = pfQuest_config.collapsedQuestIDs
+      if pfQuest_config and pfQuestConfig and pfQuestConfig.LinkCollapsedIDs then
+        pfQuestConfig:LinkCollapsedIDs(pfQuest)
       end
 
       pfQuest:AddQuestLogIntegration()
@@ -291,7 +279,7 @@ pfQuest:SetScript("OnEvent", function()
               affectsCurrentZoneTracker = true
             end
           else
-            pfMap.queue_update = GetTime()
+            pfMap:RequestUpdate()
           end
         end
       end
@@ -393,10 +381,7 @@ pfQuest:SetScript("OnUpdate", function()
         -- remove from collapsed tracking so the SavedVar doesn't accumulate
         -- stale questids from quests that were turned in or abandoned
         pfQuest.collapsedQuestIDs[entry[2]] = nil
-        -- Mark journal dirty when history changes
-        if pfJournal then
-          pfJournal.dirty = true
-        end
+        if pfJournal and pfJournal.MarkDirty then pfJournal:MarkDirty() end
 
         if pfQuest_config["trackingmethod"] ~= 4 then
           -- delete nodes by title
@@ -475,8 +460,8 @@ pfQuest:SetScript("OnUpdate", function()
               pfMap:DeleteNode("PFQUEST", pfDB["quests"]["loc"][entry[2]].T)
             end
 
-            if entry[4] == "NEW" and pfDatabase and pfDatabase.lastQuestGiversSet and entry[2] then
-              pfDatabase.lastQuestGiversSet[entry[2]] = nil
+            if entry[4] == "NEW" and pfDatabase and pfDatabase.InvalidateGiver and entry[2] then
+              pfDatabase:InvalidateGiver(entry[2])
             end
 
             pfQuest:Debug(format("|cffffff00TIMER DeleteNode(NEW/RELOAD): %.4fs", GetTime() - t0))
@@ -501,7 +486,7 @@ pfQuest:SetScript("OnUpdate", function()
       end
 
       -- Force map update so tracker refreshes (even for quests with no objectives)
-      pfMap.queue_update = GetTime()
+      pfMap:RequestUpdate()
 
       -- only return when other entries exist
       -- otherwise, continue and update questgivers
@@ -532,6 +517,33 @@ local sp_scratch = {}
 function pfQuest:DropQuestEntry(id)
   pfQuest.questlog[id] = nil
   pfQuest:UpdateQuestlog()
+end
+
+-- Trigger helper: any component flagging a quest-giver refresh goes
+-- through here instead of writing pfQuest.updateQuestGivers directly.
+function pfQuest:FlagGiverUpdate()
+  pfQuest.updateQuestGivers = true
+end
+
+-- Single reader for questlog membership (number, numeric-string or title keys).
+function pfQuest:HasQuest(id)
+  if not self.questlog or not id then return nil end
+  return self.questlog[id] or self.questlog[tonumber(id) or nil] or self.questlog[tostring(id)]
+end
+
+-- Single writer for the legacy partyQuest mirror (owned here).
+function pfQuest:ClearPartyQuest(player, id)
+  if self.partyQuests and self.partyQuests[player] then
+    if id then self.partyQuests[player][id] = nil
+    else self.partyQuests[player] = nil end
+  end
+end
+
+-- Id lookup for a log row (numeric log position + title fallback).
+function pfQuest:GetIdByLog(qlogid, title)
+  for id, q in pairs(self.questlog or {}) do
+    if type(id) == "number" and (q.qlogid == qlogid or q.title == title) then return id end
+  end
 end
 
 function pfQuest:UpdateQuestlog()
@@ -693,11 +705,7 @@ function pfQuest:ResetAll()
   pfQuest.updateQuestLog = true
   pfQuest.updateQuestGivers = true
   -- pfMap.nodes["PFQUEST"] is now empty; tell SearchQuests to start fresh
-  if pfDatabase then
-    for id in pairs(pfDatabase.lastQuestGiversSet) do
-      pfDatabase.lastQuestGiversSet[id] = nil
-    end
-  end
+  if pfDatabase and pfDatabase.ClearGiverSet then pfDatabase:ClearGiverSet() end
 end
 
 -- register popup dialog to copy urls

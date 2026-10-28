@@ -44,7 +44,7 @@ versioncheck:SetScript("OnEvent", function()
       if trusted then
         remote = remote and max(remote, remoteversion) or remoteversion
         if version and remote > version then
-          pfQuest_config.latest = remote
+          pfQuestConfig:SetLatest(remote)
         end
       end
     end

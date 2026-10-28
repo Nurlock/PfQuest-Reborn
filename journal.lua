@@ -138,6 +138,7 @@ local function UpdateEntry(self, index)
 end
 
 local journal = {}
+
 local function ReloadJournal(self)
   local self = self or this
 
@@ -186,6 +187,10 @@ end
 
 -- browser window
 pfJournal = CreateFrame("Frame", "pfQuestJournal", UIParent)
+-- Single writer for the journal refresh flag.
+function pfJournal:MarkDirty()
+  self.dirty = true
+end
 pfJournal:Hide()
 pfJournal:SetWidth(340)
 pfJournal:SetHeight(520)

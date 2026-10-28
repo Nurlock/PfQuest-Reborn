@@ -2,8 +2,6 @@
 -- Projects zone quest nodes, flight paths, and utility NPCs onto the Continent Map view
 
 local L = pfQuest_Loc or setmetatable({}, { __index = function(_, k) return k end })
-local original_UpdateNodes = pfMap and pfMap.UpdateNodes
-local original_UpdateNode = pfMap and pfMap.UpdateNode
 
 local continentPins = {}
 local maxContinentPins = 1500
@@ -187,21 +185,9 @@ local function CreateContinentPin(index)
   return continentPins[index]
 end
 
-if pfMap then
-  pfMap.UpdateNode = function(self, frame, node, color, obj, distance)
-    if original_UpdateNode then
-      original_UpdateNode(self, frame, node, color, obj, distance)
-    end
-    if obj ~= "minimap" and frame and frame.isContinentPin then
-      ResizeContinentNode(frame)
-    end
-  end
-
-  pfMap.UpdateNodes = function(self)
-    if original_UpdateNodes then
-      original_UpdateNodes(self)
-    end
-
+-- Observe (never replace) map's update pipeline through the sanctioned seam.
+-- The continent body below runs unchanged after every map update.
+local function UpdateContinentPins()
     if not GetCurrentMapContinent or not GetCurrentMapZone then
       return
     end
@@ -287,4 +273,15 @@ if pfMap then
       if pinCount >= maxContinentPins then break end
     end
   end
+
+if pfMap and pfMap.AddUpdateHook then
+  pfMap:AddUpdateHook(function(kind, frame, node, color, obj)
+    if kind == "node" then
+      if obj ~= "minimap" and frame and frame.isContinentPin then
+        ResizeContinentNode(frame)
+      end
+    elseif kind == "nodes" then
+      UpdateContinentPins()
+    end
+  end)
 end
