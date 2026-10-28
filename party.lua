@@ -8,6 +8,11 @@ local lastBroadcastState = {}
 local previousQuestList = {}
 local debugMode = false
 
+-- Single debug print. Replaces if/print/end boilerplate at every trace site.
+local function dbg(msg)
+  if debugMode then print(msg) end
+end
+
 local function GetDBLoc(category)
     return pfDB and pfDB[category] and (pfDB[category]["loc"] or pfDB[category]["enUS"])
 end
@@ -232,7 +237,11 @@ end
 -- One scan of the player's quest log into {[title] = {{objective, current,
 -- total}}}. Rebuild, sync deltas and pin tooltips all share it so the
 -- leader-board parse rule lives in exactly one place.
+-- Cached per log tick: the log only changes on QUEST_LOG_UPDATE, which clears
+-- this, so every reader in a pass shares one scan instead of each doing one.
+local cachedLogObjectives = nil
 local function GetLogObjectives()
+    if cachedLogObjectives then return cachedLogObjectives end
     local byTitle = {}
     for qid = 1, GetNumQuestLogEntries() do
         local questTitle = pfQuestCompat.GetQuestLogTitle(qid)
@@ -254,49 +263,78 @@ local function GetLogObjectives()
             end
         end
     end
+    cachedLogObjectives = byTitle
     return byTitle
+end
+
+-- Test hook + event invalidation for the scan cache.
+local function InvalidateLogCache()
+    cachedLogObjectives = nil
+end
+
+-- One upsert for every objective kind (U/I/O). The four rebuild branches only
+-- differ in target id/type, so they share this instead of drifting apart.
+local function UpsertMapping(targetName, questTitle, questId, objective, current, total, targetId, targetType, itemId)
+    if not myQuestMappings[targetName] then
+        myQuestMappings[targetName] = {}
+    end
+    for _, data in ipairs(myQuestMappings[targetName]) do
+        if data.quest == questTitle and data.objective == objective then
+            data.current = current
+            data.total = total
+            data.questId = questId
+            data.targetId = targetId
+            data.targetType = targetType
+            data.itemId = itemId
+            return
+        end
+    end
+    table.insert(myQuestMappings[targetName], {
+        quest = questTitle,
+        questId = questId,
+        objective = objective,
+        current = current,
+        total = total,
+        targetId = targetId,
+        targetType = targetType,
+        itemId = itemId,
+    })
 end
 
 local function RebuildQuestMappings()
     if debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Checking pfDB...")
-        print("  pfDB exists: " .. tostring(pfDB ~= nil))
+        dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Checking pfDB...")
+        dbg("  pfDB exists: " .. tostring(pfDB ~= nil))
         if pfDB then
-            print("  pfDB type: " .. type(pfDB))
-            print("  pfDB.quests exists: " .. tostring(pfDB.quests ~= nil))
+            dbg("  pfDB type: " .. type(pfDB))
+            dbg("  pfDB.quests exists: " .. tostring(pfDB.quests ~= nil))
             if pfDB.quests then
-                print("  pfDB.quests.data exists: " .. tostring(pfDB.quests.data ~= nil))
+                dbg("  pfDB.quests.data exists: " .. tostring(pfDB.quests.data ~= nil))
             end
         end
-        print("  pfQuestCompat exists: " .. tostring(pfQuestCompat ~= nil))
-        print("  pfMap exists: " .. tostring(pfMap ~= nil))
+        dbg("  pfQuestCompat exists: " .. tostring(pfQuestCompat ~= nil))
+        dbg("  pfMap exists: " .. tostring(pfMap ~= nil))
     end
 
     if not pfDB or not pfDB["quests"] or not pfDB["quests"]["data"] then
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - pfDB not available")
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - pfDB not available")
         return
     end
 
-    if debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Starting quest mapping rebuild")
-    end
+            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Starting quest mapping rebuild")
 
     local activeQuests = GetLogObjectives()
     if debugMode then
         for questTitle, objectives in pairs(activeQuests) do
-            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found quest: " .. questTitle .. " with " .. table.getn(objectives) .. " objectives")
+            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found quest: " .. questTitle .. " with " .. table.getn(objectives) .. " objectives")
             for _, o in ipairs(objectives) do
-                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Objective: " .. o.objective .. " (" .. o.current .. "/" .. o.total .. ")")
+                dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Objective: " .. o.objective .. " (" .. o.current .. "/" .. o.total .. ")")
             end
         end
     end
 
     if not GetDBLoc("quests") then
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - No enUS localization table found")
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - No enUS localization table found")
         return
     end
 
@@ -304,70 +342,31 @@ local function RebuildQuestMappings()
         local questTitle = localizedData["T"]
 
         if questTitle and activeQuests[questTitle] then
-            if debugMode then
-                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Matching quest: " .. questTitle .. " (ID: " .. questId .. ")")
-            end
+                            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Matching quest: " .. questTitle .. " (ID: " .. questId .. ")")
 
             local questData = pfDB["quests"]["data"][questId]
             if questData and questData["obj"] then
-                if debugMode then
-                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Quest has obj table")
-                end
+                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Quest has obj table")
 
                 if questData["obj"]["U"] then
                     for _, unitId in pairs(questData["obj"]["U"]) do
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found unit objective: Unit ID " .. tostring(unitId))
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found unit objective: Unit ID " .. tostring(unitId))
 
                         if GetDBLoc("units") and GetDBLoc("units")[unitId] then
                             local targetName = GetDBLoc("units")[unitId]
 
-                            if debugMode then
-                                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Unit name: " .. targetName)
-                            end
+                                                            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Unit name: " .. targetName)
 
                             for _, activeObj in ipairs(activeQuests[questTitle]) do
-                                if debugMode then
-                                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Checking if quest log objective matches...")
-                                    print("    Quest log: \"" .. activeObj.objective .. "\"")
-                                    print("    Target name: \"" .. targetName .. "\"")
-                                end
+                                dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Checking if quest log objective matches...")
+                                dbg("    Quest log: \"" .. activeObj.objective .. "\"")
+                                dbg("    Target name: \"" .. targetName .. "\"")
 
                                 local objNameBase = activeObj.objective:gsub(" slain$", ""):gsub(" killed$", "")
                                 if objNameBase == targetName or activeObj.objective:find(targetName, 1, true) then
-                                    if not myQuestMappings[targetName] then
-                                        myQuestMappings[targetName] = {}
-                                    end
+                                    UpsertMapping(targetName, questTitle, questId, activeObj.objective, activeObj.current, activeObj.total, unitId, "U")
 
-                                    local found = false
-                                    for _, data in ipairs(myQuestMappings[targetName]) do
-                                        if data.quest == questTitle and data.objective == activeObj.objective then
-                                            data.current = activeObj.current
-                                            data.total = activeObj.total
-                                            data.questId = questId
-                                            data.targetId = unitId
-                                            data.targetType = "U"
-                                            found = true
-                                            break
-                                        end
-                                    end
-
-                                    if not found then
-                                        table.insert(myQuestMappings[targetName], {
-                                            quest = questTitle,
-                                            questId = questId,
-                                            objective = activeObj.objective,
-                                            current = activeObj.current,
-                                            total = activeObj.total,
-                                            targetId = unitId,
-                                            targetType = "U"
-                                        })
-                                    end
-
-                                    if debugMode then
-                                        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Added " .. targetName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
-                                    end
+                                                                            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Added " .. targetName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
                                 end
                             end
                         end
@@ -376,17 +375,13 @@ local function RebuildQuestMappings()
 
                 if questData["obj"]["I"] then
                     for _, itemId in pairs(questData["obj"]["I"]) do
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found item objective: Item ID " .. tostring(itemId))
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found item objective: Item ID " .. tostring(itemId))
 
                         local itemName = nil
                         if GetDBLoc("items") and GetDBLoc("items")[itemId] then
                             itemName = GetDBLoc("items")[itemId]
 
-                            if debugMode then
-                                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Item name: " .. itemName)
-                            end
+                                                            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Item name: " .. itemName)
                         end
 
                         if pfDB["items"] and pfDB["items"]["data"] and pfDB["items"]["data"][itemId] then
@@ -397,46 +392,13 @@ local function RebuildQuestMappings()
                                     if GetDBLoc("units") and GetDBLoc("units")[unitId] then
                                         local npcName = GetDBLoc("units")[unitId]
 
-                                        if debugMode then
-                                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - NPC " .. npcName .. " drops " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
-                                        end
+                                                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - NPC " .. npcName .. " drops " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
 
                                         for _, activeObj in ipairs(activeQuests[questTitle]) do
                                             if itemName and activeObj.objective:find(itemName, 1, true) then
-                                                if not myQuestMappings[npcName] then
-                                                    myQuestMappings[npcName] = {}
-                                                end
+                                                UpsertMapping(npcName, questTitle, questId, activeObj.objective, activeObj.current, activeObj.total, unitId, "I", itemId)
 
-                                                local found = false
-                                                for _, data in ipairs(myQuestMappings[npcName]) do
-                                                    if data.quest == questTitle and data.objective == activeObj.objective then
-                                                        data.current = activeObj.current
-                                                        data.total = activeObj.total
-                                                        data.questId = questId
-                                                        data.targetId = unitId
-                                                        data.itemId = itemId
-                                                        data.targetType = "I"
-                                                        found = true
-                                                        break
-                                                    end
-                                                end
-
-                                                if not found then
-                                                    table.insert(myQuestMappings[npcName], {
-                                                        quest = questTitle,
-                                                        questId = questId,
-                                                        objective = activeObj.objective,
-                                                        current = activeObj.current,
-                                                        total = activeObj.total,
-                                                        targetId = unitId,
-                                                        itemId = itemId,
-                                                        targetType = "I"
-                                                    })
-                                                end
-
-                                                if debugMode then
-                                                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Mapped NPC " .. npcName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
-                                                end
+                                                                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Mapped NPC " .. npcName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
                                             end
                                         end
                                     end
@@ -448,46 +410,13 @@ local function RebuildQuestMappings()
                                     if GetDBLoc("objects") and GetDBLoc("objects")[objectId] then
                                         local objName = GetDBLoc("objects")[objectId]
 
-                                        if debugMode then
-                                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Object " .. objName .. " contains " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
-                                        end
+                                                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Object " .. objName .. " contains " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
 
                                         for _, activeObj in ipairs(activeQuests[questTitle]) do
                                             if itemName and activeObj.objective:find(itemName, 1, true) then
-                                                if not myQuestMappings[objName] then
-                                                    myQuestMappings[objName] = {}
-                                                end
+                                                UpsertMapping(objName, questTitle, questId, activeObj.objective, activeObj.current, activeObj.total, objectId, "I", itemId)
 
-                                                local found = false
-                                                for _, data in ipairs(myQuestMappings[objName]) do
-                                                    if data.quest == questTitle and data.objective == activeObj.objective then
-                                                        data.current = activeObj.current
-                                                        data.total = activeObj.total
-                                                        data.questId = questId
-                                                        data.targetId = objectId
-                                                        data.itemId = itemId
-                                                        data.targetType = "I"
-                                                        found = true
-                                                        break
-                                                    end
-                                                end
-
-                                                if not found then
-                                                    table.insert(myQuestMappings[objName], {
-                                                        quest = questTitle,
-                                                        questId = questId,
-                                                        objective = activeObj.objective,
-                                                        current = activeObj.current,
-                                                        total = activeObj.total,
-                                                        targetId = objectId,
-                                                        itemId = itemId,
-                                                        targetType = "I"
-                                                    })
-                                                end
-
-                                                if debugMode then
-                                                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Mapped object " .. objName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
-                                                end
+                                                                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Mapped object " .. objName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
                                             end
                                         end
                                     end
@@ -499,51 +428,18 @@ local function RebuildQuestMappings()
 
                 if questData["obj"]["O"] then
                     for _, objectId in pairs(questData["obj"]["O"]) do
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found object objective: Object ID " .. tostring(objectId))
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found object objective: Object ID " .. tostring(objectId))
 
                         if GetDBLoc("objects") and GetDBLoc("objects")[objectId] then
                             local objectName = GetDBLoc("objects")[objectId]
 
-                            if debugMode then
-                                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Object name: " .. objectName)
-                            end
+                                                            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Object name: " .. objectName)
 
                             for _, activeObj in ipairs(activeQuests[questTitle]) do
                                 if activeObj.objective:find(objectName, 1, true) then
-                                    if not myQuestMappings[objectName] then
-                                        myQuestMappings[objectName] = {}
-                                    end
+                                    UpsertMapping(objectName, questTitle, questId, activeObj.objective, activeObj.current, activeObj.total, objectId, "O")
 
-                                    local found = false
-                                    for _, data in ipairs(myQuestMappings[objectName]) do
-                                        if data.quest == questTitle and data.objective == activeObj.objective then
-                                            data.current = activeObj.current
-                                            data.total = activeObj.total
-                                            data.questId = questId
-                                            data.targetId = objectId
-                                            data.targetType = "O"
-                                            found = true
-                                            break
-                                        end
-                                    end
-
-                                    if not found then
-                                        table.insert(myQuestMappings[objectName], {
-                                            quest = questTitle,
-                                            questId = questId,
-                                            objective = activeObj.objective,
-                                            current = activeObj.current,
-                                            total = activeObj.total,
-                                            targetId = objectId,
-                                            targetType = "O"
-                                        })
-                                    end
-
-                                    if debugMode then
-                                        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Added " .. objectName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
-                                    end
+                                                                            dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Added " .. objectName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
                                 end
                             end
                         end
@@ -556,14 +452,12 @@ local function RebuildQuestMappings()
     if debugMode then
         local count = 0
         for _ in pairs(myQuestMappings) do count = count + 1 end
-        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Complete. Total target mappings: " .. count)
+        dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - Complete. Total target mappings: " .. count)
     end
 end
 
 local function CaptureMyQuestData(targetKey, questTitle, objectiveText, current, total)
-    if debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r CAPTURE - Key: " .. tostring(targetKey) .. ", Quest: " .. tostring(questTitle) .. ", Obj: " .. tostring(objectiveText) .. ", Progress: " .. current .. "/" .. total)
-    end
+            dbg("|cff33ffccpf|cffffffffQuest:|r CAPTURE - Key: " .. tostring(targetKey) .. ", Quest: " .. tostring(questTitle) .. ", Obj: " .. tostring(objectiveText) .. ", Progress: " .. current .. "/" .. total)
 
     if not myQuestMappings[targetKey] then
         myQuestMappings[targetKey] = {}
@@ -698,9 +592,7 @@ local function ShareQuestData(forceFullSync)
                 local msg = string.format("REMOVEQ:%d:%s", questId, questTitle)
                 SendAddonMessage("pfqe", msg, channel)
 
-                if debugMode then
-                    print("|cff33ffccpf|cffffffffQuest:|r REMOVE broadcast - Quest: " .. questTitle .. " (ID: " .. questId .. ")")
-                end
+                                    dbg("|cff33ffccpf|cffffffffQuest:|r REMOVE broadcast - Quest: " .. questTitle .. " (ID: " .. questId .. ")")
             end
         end
     end
@@ -772,9 +664,7 @@ local function ShareQuestData(forceFullSync)
                         })
                     end
 
-                    if debugMode then
-                        print("|cff33ffccpf|cffffffffQuest:|r DELTA - Changed: " .. targetKey .. " -> " .. data.quest .. " (" .. data.current .. "/" .. data.total .. ")")
-                    end
+                                            dbg("|cff33ffccpf|cffffffffQuest:|r DELTA - Changed: " .. targetKey .. " -> " .. data.quest .. " (" .. data.current .. "/" .. data.total .. ")")
                 end
             end
         end
@@ -785,18 +675,14 @@ local function ShareQuestData(forceFullSync)
     end
 
     if table.getn(changedEntries) == 0 then
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r BROADCAST - No changes, skipping")
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r BROADCAST - No changes, skipping")
         return
     end
 
     local messages = {}
     local currentBatch = "V1|"
 
-    if debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r BROADCAST - Building batches for " .. table.getn(changedEntries) .. " changed entries")
-    end
+            dbg("|cff33ffccpf|cffffffffQuest:|r BROADCAST - Building batches for " .. table.getn(changedEntries) .. " changed entries")
 
     for _, entry in ipairs(changedEntries) do
         -- Compact format: UxxxQyyy:cc:tt; or OxxxQyyy:cc:tt;
@@ -810,9 +696,7 @@ local function ShareQuestData(forceFullSync)
         if string.len(currentBatch) + string.len(entryStr) > 250 then
             table.insert(messages, currentBatch)
 
-            if debugMode then
-                print("BATCH split at " .. string.len(currentBatch) .. " chars")
-            end
+                            dbg("BATCH split at " .. string.len(currentBatch) .. " chars")
 
             currentBatch = "V1|" .. entryStr
         else
@@ -824,16 +708,12 @@ local function ShareQuestData(forceFullSync)
         table.insert(messages, currentBatch)
     end
 
-    if debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r BROADCAST - Sending " .. table.getn(messages) .. " batched message(s) to " .. channel)
-    end
+            dbg("|cff33ffccpf|cffffffffQuest:|r BROADCAST - Sending " .. table.getn(messages) .. " batched message(s) to " .. channel)
 
     for i, msg in ipairs(messages) do
         SendAddonMessage("pfqe", msg, channel)
 
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r   Batch " .. i .. " (" .. string.len(msg) .. " chars): " .. msg)
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r   Batch " .. i .. " (" .. string.len(msg) .. " chars): " .. msg)
     end
 
     -- Only keys covered this pass count as broadcast. Skipped entries (no IDs
@@ -973,15 +853,13 @@ local function ParseQuestSpec(head)
     return targetName, questTitle, objective
 end
 
-local function ProcessQuestData(sender, message)
-    -- Handle consolidated quest removal (new format: REMOVEQ:questId:questTitle).
+-- REMOVEQ handler: consolidated quest removal. Returns true when claimed.
+local function HandleRemoveQ(sender, message)
     -- Title may itself contain colons, so anchor on the numeric id and take the rest.
     local removeQuestId, removeQuestTitle = string.match(message, "^REMOVEQ:(%d+):(.+)$")
     removeQuestTitle = SanitizePartyString(removeQuestTitle, MAX_QUEST_TITLE_LEN) or ""
     if removeQuestId and removeQuestTitle then
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r REMOVEQ from " .. sender .. " - Quest: " .. removeQuestTitle .. " (ID: " .. removeQuestId .. ")")
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r REMOVEQ from " .. sender .. " - Quest: " .. removeQuestTitle .. " (ID: " .. removeQuestId .. ")")
 
         if partyQuestData[sender] then
             for targetKey, quests in pairs(partyQuestData[sender]) do
@@ -990,9 +868,7 @@ local function ProcessQuestData(sender, message)
                     local entry = quests[i]
                     if entry.quest == removeQuestTitle and (not entry.questId or entry.questId == tonumber(removeQuestId)) then
                         table.remove(quests, i)
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Removed from " .. targetKey)
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Removed from " .. targetKey)
                     else
                         i = i + 1
                     end
@@ -1009,16 +885,17 @@ local function ProcessQuestData(sender, message)
 
         DeletePartyQuestNodes(removeQuestId or removeQuestTitle, sender)
 
-        return
+        return true
     end
+    return false
+end
 
-    -- Handle old format for backwards compatibility (REMOVE:targetKey:questTitle).
+-- Legacy REMOVE handler (REMOVE:targetKey:questTitle). Kept for old peers.
+local function HandleLegacyRemove(sender, message)
     -- The key itself never contains a colon; the title may, so split on the first one.
     local removeTarget, removeQuest = string.match(message, "^REMOVE:([^:]+):(.+)$")
     if removeTarget and removeQuest then
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r REMOVE from " .. sender .. " - Key: " .. removeTarget .. ", Quest: " .. removeQuest)
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r REMOVE from " .. sender .. " - Key: " .. removeTarget .. ", Quest: " .. removeQuest)
 
         if partyQuestData[sender] and partyQuestData[sender][removeTarget] then
             local i = 1
@@ -1037,15 +914,58 @@ local function ProcessQuestData(sender, message)
 
         DeletePartyQuestNodes(removeQuest, sender)
 
-        return
+        return true
+    end
+    return false
+end
+
+-- Legacy QUEST handler: counts anchored from the right, then three greedy
+-- name fields so colons inside names still parse. Claims everything the
+-- dispatcher passes it; unparsable shapes are dropped silently.
+local function HandleLegacyQuest(sender, message)
+    local tailHead, current, total = ParseColonTail(message)
+    if not tailHead then
+                    dbg("|cff33ffccpf|cffffffffQuest:|r QUEST parse: no trailing counts in (" .. string.len(message) .. " chars)")
+        return true
+    end
+    local targetName, questTitle, objective = ParseQuestSpec(tailHead)
+    if (not targetName) and debugMode then
+        print("|cff33ffccpf|cffffffffQuest:|r QUEST parse failed for: " .. tostring(tailHead))
     end
 
+    if targetName and questTitle and objective and current and total then
+        if not IsValidProgress(current, total) then
+                            dbg("|cff33ffccpf|cffffffffQuest:|r rejected out-of-range QUEST progress: " .. current .. "/" .. total)
+            return true
+        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r RECEIVE from " .. sender .. " - Key: " .. targetName .. ", Quest: " .. questTitle .. ", Progress: " .. current .. "/" .. total)
+
+        StorePartyObjective(sender, targetName, nil, questTitle, objective, current, total)
+
+        local legacyQuestId = nil
+        for targetKey, quests in pairs(myQuestMappings) do
+            for _, data in ipairs(quests) do
+                if data.quest == questTitle and data.questId then
+                    legacyQuestId = data.questId
+                    break
+                end
+            end
+            if legacyQuestId then break end
+        end
+        UpdatePartyMapNodes(legacyQuestId, sender, questTitle)
+    end
+    return true
+end
+
+-- Inbound dispatcher: one handler per wire format, tried in order. Each
+-- handler owns its prefix match and returns true when it claims the message.
+local function ProcessQuestData(sender, message)
+    if HandleRemoveQ(sender, message) then return end
+    if HandleLegacyRemove(sender, message) then return end
     if string.sub(message, 1, 3) == "V1|" then
         local batch = string.sub(message, 4)
 
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r RECEIVE V1 batch from " .. sender .. " (" .. string.len(message) .. " chars)")
-        end
+                    dbg("|cff33ffccpf|cffffffffQuest:|r RECEIVE V1 batch from " .. sender .. " (" .. string.len(message) .. " chars)")
 
         local entries = {}
         for entry in string.gmatch(batch, "([^;]+)") do
@@ -1069,9 +989,7 @@ local function ProcessQuestData(sender, message)
                 total = tonumber(total)
 
                 if not IsValidProgress(current, total) then
-                    if debugMode then
-                        print("|cff33ffccpf|cffffffffQuest:|r rejected out-of-range V1 entry: " .. tostring(entry))
-                    end
+                                            dbg("|cff33ffccpf|cffffffffQuest:|r rejected out-of-range V1 entry: " .. tostring(entry))
                 else
                 local questTitle = nil
                 local objectiveText = nil
@@ -1109,9 +1027,7 @@ local function ProcessQuestData(sender, message)
                     if pfDB and pfDB["items"] and pfDB["items"]["data"] and pfDB["items"]["data"][targetId] then
                         local itemData = pfDB["items"]["data"][targetId]
 
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Expanding item quest - Item ID: " .. targetId)
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Expanding item quest - Item ID: " .. targetId)
 
                         if itemData["U"] then
                             local npcCount = 0
@@ -1122,9 +1038,7 @@ local function ProcessQuestData(sender, message)
                                 end
                             end
 
-                            if debugMode then
-                                print("|cff33ffccpf|cffffffffQuest:|r   Expanded to " .. npcCount .. " NPCs for item " .. targetId)
-                            end
+                                                            dbg("|cff33ffccpf|cffffffffQuest:|r   Expanded to " .. npcCount .. " NPCs for item " .. targetId)
                         end
 
                         if itemData["O"] then
@@ -1135,9 +1049,7 @@ local function ProcessQuestData(sender, message)
                             end
                         end
                     else
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Failed to expand item quest - Item ID " .. targetId .. " not found in database")
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Failed to expand item quest - Item ID " .. targetId .. " not found in database")
                     end
                 elseif targetType == "U" then
                     local targetName = nil
@@ -1146,14 +1058,10 @@ local function ProcessQuestData(sender, message)
                     end
 
                     if targetName and questTitle then
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Parsed: U" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Parsed: U" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
                         StorePartyObjective(sender, targetName, questId, questTitle, objectiveText, current, total)
                     else
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Failed to resolve: U" .. targetId .. "Q" .. questId)
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Failed to resolve: U" .. targetId .. "Q" .. questId)
                     end
                 elseif targetType == "O" then
                     local targetName = nil
@@ -1162,21 +1070,15 @@ local function ProcessQuestData(sender, message)
                     end
 
                     if targetName and questTitle then
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Parsed: O" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Parsed: O" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
                         StorePartyObjective(sender, targetName, questId, questTitle, objectiveText, current, total)
                     else
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r   Failed to resolve: O" .. targetId .. "Q" .. questId)
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Failed to resolve: O" .. targetId .. "Q" .. questId)
                     end
                 end
                 end
             else
-                if debugMode then
-                    print("|cff33ffccpf|cffffffffQuest:|r   Failed to parse entry: " .. entry)
-                end
+                                    dbg("|cff33ffccpf|cffffffffQuest:|r   Failed to parse entry: " .. entry)
             end
         end
 
@@ -1212,48 +1114,7 @@ local function ProcessQuestData(sender, message)
         return
     end
 
-    -- Legacy QUEST format: counts are anchored from the right, then the three
-    -- name fields are recovered greedily so colons inside names still parse.
-    -- NOTE: ParseColonTail requires the message to end in ":<c>:<t>"; the V1|
-    -- and REMOVE branches above already returned, so anything reaching here
-    -- with a different shape yields nil and falls through silently.
-    local tailHead, current, total = ParseColonTail(message)
-    if not tailHead then
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r QUEST parse: no trailing counts in (" .. string.len(message) .. " chars)")
-        end
-        return
-    end
-    local targetName, questTitle, objective = ParseQuestSpec(tailHead)
-    if (not targetName) and debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r QUEST parse failed for: " .. tostring(tailHead))
-    end
-
-    if targetName and questTitle and objective and current and total then
-        if not IsValidProgress(current, total) then
-            if debugMode then
-                print("|cff33ffccpf|cffffffffQuest:|r rejected out-of-range QUEST progress: " .. current .. "/" .. total)
-            end
-            return
-        end
-        if debugMode then
-            print("|cff33ffccpf|cffffffffQuest:|r RECEIVE from " .. sender .. " - Key: " .. targetName .. ", Quest: " .. questTitle .. ", Progress: " .. current .. "/" .. total)
-        end
-
-        StorePartyObjective(sender, targetName, nil, questTitle, objective, current, total)
-
-        local legacyQuestId = nil
-        for targetKey, quests in pairs(myQuestMappings) do
-            for _, data in ipairs(quests) do
-                if data.quest == questTitle and data.questId then
-                    legacyQuestId = data.questId
-                    break
-                end
-            end
-            if legacyQuestId then break end
-        end
-        UpdatePartyMapNodes(legacyQuestId, sender, questTitle)
-    end
+    HandleLegacyQuest(sender, message)
 end
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
@@ -1315,12 +1176,10 @@ local function HandlePfqeMessage(sender, message)
             if not queued then queued = {} pendingInboundBySender[sender] = queued end
             if table.getn(queued) >= MAX_QUEUED_BATCHES then table.remove(queued, 1) end
             table.insert(queued, message)
-            if debugMode then
-                print("|cff33ffccpf|cffffffffQuest:|r inbound batch from " .. tostring(sender) .. " queued")
-            end
+            dbg("|cff33ffccpf|cffffffffQuest:|r inbound batch from " .. tostring(sender) .. " queued")
         end
     elseif debugMode then
-        print("|cff33ffccpf|cffffffffQuest:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
+        dbg("|cff33ffccpf|cffffffffQuest:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
     end
 end
 
@@ -1406,6 +1265,7 @@ eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
             ShareQuestData(true)
         end
     elseif event == "QUEST_LOG_UPDATE" then
+        InvalidateLogCache()
         -- Debounce: kills/loot fire this per tick; rebuild+share at most
         -- once per QUEST_LOG_SYNC_DEBOUNCE seconds, flushed by OnUpdate.
         if IsInGroup() and IsSyncEnabled() then
@@ -1431,9 +1291,7 @@ configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
 
         if IsInGroup() and IsSyncEnabled() then
             RebuildQuestMappings()
-            if debugMode then
-                print("|cff33ffccpf|cffffffffQuest:|r Addon loaded, rebuilding and sharing")
-            end
+                            dbg("|cff33ffccpf|cffffffffQuest:|r Addon loaded, rebuilding and sharing")
             ShareQuestData(true)
         end
 
@@ -1446,9 +1304,7 @@ configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
                 if timer % 5 == 0 then
                     rebuildRetries = rebuildRetries + 1
                     if pfDB and pfDB["quests"] and pfDB["quests"]["data"] then
-                        if debugMode then
-                            print("|cff33ffccpf|cffffffffQuest:|r pfDB now available, rebuilding quest mappings")
-                        end
+                                                    dbg("|cff33ffccpf|cffffffffQuest:|r pfDB now available, rebuilding quest mappings")
                         RebuildQuestMappings()
                         if IsInGroup() and IsSyncEnabled() then
                             ShareQuestData(true)
@@ -1489,6 +1345,7 @@ pfQuest.partyapi = {
     InboundAllowed = InboundAllowed,
     HandlePfqeMessage = HandlePfqeMessage,
     CaptureTooltipTarget = CaptureTooltipTarget,
+    InvalidateLogCache = InvalidateLogCache,
     PumpSyncTimers = PumpSyncTimers,
     partyQuestData = partyQuestData,
     myQuestMappings = myQuestMappings,
