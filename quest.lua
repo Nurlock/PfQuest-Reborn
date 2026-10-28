@@ -527,6 +527,13 @@ local questlog_flip, questlog_flop = {}, {}
 -- rebuild runs on a 1s poll plus on quest changes, so allocating a fresh table
 -- per quest (up to ~25) meant ~25 throwaway tables/sec even at idle.
 local sp_scratch = {}
+-- Single owner for questlog entry removal: database bag scans and
+-- external triggers come here instead of writing pfQuest.questlog.
+function pfQuest:DropQuestEntry(id)
+  pfQuest.questlog[id] = nil
+  pfQuest:UpdateQuestlog()
+end
+
 function pfQuest:UpdateQuestlog()
   -- initialize flip flop if not yet defined
   pfQuest.questlog_tmp = pfQuest.questlog_tmp or questlog_flip

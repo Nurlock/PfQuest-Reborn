@@ -1183,6 +1183,43 @@ function pfMap:DeleteNode(addon, title)
   pfMap.tick = nil
 end
 
+-- Delete every node of one addon where matches(title, node) is true.
+-- Collect-then-delete through DeleteNode so all reverse indexes
+-- (title, tooltip, unifiedcache) stay consistent. Returns true if
+-- anything was removed.
+function pfMap:DeleteNodesWhere(addon, matches)
+  if not addon or not pfMap.nodes[addon] then return false end
+  local titles = {}
+  for _, coords in pairs(pfMap.nodes[addon]) do
+    for title, node in pairs(coords) do
+      if matches(title, node) then titles[title] = true end
+    end
+  end
+  local deleted = false
+  for title in pairs(titles) do
+    pfMap:DeleteNode(addon, title)
+    deleted = true
+  end
+  return deleted
+end
+
+-- Read-only cluster snapshot for one addon+quest: {{map, hash, data}}.
+-- Lets database prepare cluster markers without touching node stores.
+function pfMap:GetClusterData(addon, cacheKey)
+  local out = {}
+  local maps = pfMap.nodes and pfMap.nodes[addon]
+  local cached = pfMap.unifiedcache and pfMap.unifiedcache[cacheKey]
+  if not maps or not cached then return out end
+  for map in pairs(maps) do
+    if cached[map] then
+      for hash, data in pairs(cached[map]) do
+        table.insert(out, { map = map, hash = hash, data = data })
+      end
+    end
+  end
+  return out
+end
+
 function pfMap:NodeClick()
   if IsAltKeyDown() and this.spawnid and pfQuestLoot and pfQuestLoot.ShowPinned then
     local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.spawnid]

@@ -386,16 +386,14 @@ pfDatabase.itemlist:SetScript("OnUpdate", function()
   -- find new items
   for item in pairs(this.db) do
     if not previous[item] and this.registry[item] then
-      pfQuest.questlog[this.registry[item]] = nil
-      pfQuest:UpdateQuestlog()
+      pfQuest:DropQuestEntry(this.registry[item])
     end
   end
 
   -- find removed items
   for item in pairs(previous) do
     if not this.db[item] and this.registry[item] then
-      pfQuest.questlog[this.registry[item]] = nil
-      pfQuest:UpdateQuestlog()
+      pfQuest:DropQuestEntry(this.registry[item])
     end
   end
 
@@ -2246,31 +2244,28 @@ function pfDatabase:SearchQuestID(id, meta, maps)
   local addon = meta["addon"] or "PFDB"
   local cacheKey = meta.quest and meta.questid
     and (meta.quest .. "\1" .. tostring(meta.questid)) or meta.quest
-  if pfMap.nodes[addon] then
-    for map in pairs(pfMap.nodes[addon]) do
-      if meta.quest and pfMap.unifiedcache[cacheKey] and pfMap.unifiedcache[cacheKey][map] then
-        for hash, data in pairs(pfMap.unifiedcache[cacheKey][map]) do
-          meta = data.meta
-          meta["title"] = meta["title"] or meta["quest"]
-          meta["cluster"] = true
-          meta["zone"] = map
+  if meta.quest then
+    for _, cluster in ipairs(pfMap:GetClusterData(addon, cacheKey)) do
+      local data, map, hash = cluster.data, cluster.map, cluster.hash
+      meta = data.meta
+      meta["title"] = meta["title"] or meta["quest"]
+      meta["cluster"] = true
+      meta["zone"] = map
 
-          local icon = pfQuest_config["clustermono"] == "1" and "_mono" or ""
+      local icon = pfQuest_config["clustermono"] == "1" and "_mono" or ""
 
-          if meta.item then
-            meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
-            meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_item" .. icon
-            pfMap:AddNode(meta, true)
-          elseif meta.spawntype and meta.spawntype == pfQuest_Loc["Unit"] and meta.spawn and not meta.itemreq then
-            meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
-            meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_mob" .. icon
-            pfMap:AddNode(meta, true)
-          else
-            meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
-            meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_misc" .. icon
-            pfMap:AddNode(meta, true)
-          end
-        end
+      if meta.item then
+        meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
+        meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_item" .. icon
+        pfMap:AddNode(meta, true)
+      elseif meta.spawntype and meta.spawntype == pfQuest_Loc["Unit"] and meta.spawn and not meta.itemreq then
+        meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
+        meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_mob" .. icon
+        pfMap:AddNode(meta, true)
+      else
+        meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
+        meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_misc" .. icon
+        pfMap:AddNode(meta, true)
       end
     end
   end

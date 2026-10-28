@@ -137,7 +137,8 @@ local addedNodes = {}
 env.pfMap = {
   nodes = {},
   AddNode = function(self, node) table.insert(addedNodes, node) end,
-  unifiedcache = {}
+  unifiedcache = {},
+  GetClusterData = function(self, addon, cacheKey) return {} end,
 }
 
 env.pfQuest_config["currentquestgivers"] = "1"
