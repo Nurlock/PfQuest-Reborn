@@ -2713,7 +2713,7 @@ function pfDatabase:GetQuestIDs(qid)
   -- always make sure the quest-cache exists
   pfQuest_questcache = pfQuest_questcache or {}
 
-  if pfQuest_questcache[identifier] and pfQuest_questcache[identifier][1] then
+  if pfQuest_questcache[identifier] then
     return pfQuest_questcache[identifier]
   end
 
@@ -3018,8 +3018,9 @@ local function OnQuestQueryComplete(self)
     local total, new = 0, 0
     for questID, _ in pairs(completedQuests) do
       total = total + 1
-      if not pfQuest_history[questID] then new = new + 1 end
-      pfQuest_history[questID] = { time(), UnitLevel("player") }
+      local hkey = tonumber(questID) or questID
+      if not pfQuest_history[hkey] then new = new + 1 end
+      pfQuest_history[hkey] = { time(), UnitLevel("player") }
     end
 
     -- Mark journal dirty when history changes

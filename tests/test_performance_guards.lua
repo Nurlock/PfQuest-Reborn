@@ -95,7 +95,9 @@ versioncheck:FireScript("OnEvent")
 -- Must NOT re-broadcast on incoming message (prevents echo infinite loop)
 assert(#env.sentAddonMessages == 0, "Incoming CHAT_MSG_ADDON must not trigger SendAddonMessage (echo loop prevention)!")
 
--- Broadcast should only happen on PLAYER_ENTERING_WORLD or PARTY_MEMBERS_CHANGED
+-- Broadcast should only happen on PLAYER_ENTERING_WORLD or PARTY_MEMBERS_CHANGED while grouped
+env.GetNumPartyMembers = function() return 1 end
+env.GetNumRaidMembers = function() return 0 end
 env.event = "PLAYER_ENTERING_WORLD"
 versioncheck:FireScript("OnEvent")
 assert(#env.sentAddonMessages > 0, "PLAYER_ENTERING_WORLD should trigger SendAddonMessage")

@@ -435,7 +435,7 @@ function tracker.ButtonClick()
     -- mark as done if node is quest and not in questlog
     if this.node.questid and not this.node.qlogid then
       -- mark as done in history
-      pfQuest_history[this.node.questid] = { time(), UnitLevel("player") }
+      pfQuest_history[tonumber(this.node.questid) or this.node.questid] = { time(), UnitLevel("player") }
       UIErrorsFrame:AddMessage(
         string.format("The Quest |cffffcc00[%s]|r (id:%s) is now marked as done.", this.title, this.node.questid),
         1,
