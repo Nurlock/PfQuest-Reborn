@@ -141,7 +141,6 @@ local function CleanupPartyData()
     for playerName in pairs(partyQuestData) do
         if not validPlayers[playerName] then
             partyQuestData[playerName] = nil
-            if pfQuest and pfQuest.ClearPartyQuest then pfQuest:ClearPartyQuest(playerName) end
             DeletePartyQuestNodes(nil, playerName)
         end
     end
@@ -886,10 +885,6 @@ local function ProcessQuestData(sender, message)
             end
         end
 
-        if pfQuest and pfQuest.ClearPartyQuest then
-            local nId = tonumber(removeQuestId)
-            if nId then pfQuest:ClearPartyQuest(sender, nId) end
-        end
         DeletePartyQuestNodes(removeQuestId or removeQuestTitle, sender)
 
         return
