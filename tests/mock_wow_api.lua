@@ -179,7 +179,17 @@ function M.create_env()
     function f:GetAlpha() return self._alpha or 1 end
 
     function f:SetScript(handler, fn)
-      self._scripts[handler] = fn
+      -- Mirror WoW chaining: a second SetScript on the same handler must
+      -- not silently drop the first (eventFrame sets OnEvent then OnUpdate).
+      local prev = self._scripts[handler]
+      if prev and fn then
+        self._scripts[handler] = function(...)
+          prev(...)
+          fn(...)
+        end
+      else
+        self._scripts[handler] = fn
+      end
     end
     function f:GetScript(handler)
       return self._scripts[handler]

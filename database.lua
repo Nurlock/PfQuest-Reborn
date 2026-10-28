@@ -2811,7 +2811,11 @@ function pfDatabase:GetQuestIDs(qid)
     end
   end
 
-  -- cache for next time
+  -- cache for next time (empty on no-match: unknown titles must not poison)
+  if best == 0 or not results[best] then
+    pfQuest_questcache[identifier] = {}
+    return {}
+  end
   pfQuest_questcache[identifier] = results[best]
   return results[best]
 end

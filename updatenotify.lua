@@ -10,7 +10,7 @@ local function strsplit(delimiter, subject)
   return unpack(fields)
 end
 
-local channels = { "BATTLEGROUND", "RAID", "GUILD" }
+local channels = { "BATTLEGROUND", "RAID", "PARTY", "GUILD" }
 local version, remote, major, minor, fix, displayed, available
 local versioncheck = CreateFrame("Frame")
 versioncheck:RegisterEvent("ADDON_LOADED")
