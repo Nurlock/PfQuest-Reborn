@@ -60,7 +60,6 @@ pfQuestConfig:CreateConfigEntries(pfQuest_defconfig)
 print("[TEST] Verifying initial state: Experimental Features disabled by default...")
 assert(pfQuest_config["experimental"] == "0", "experimental should default to '0'")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["experimental"]) == true, "Master toggle itself must be active")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questiegroup"]) == false, "questiegroup must be inactive when experimental=0")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["epochgroupsync"]) == false, "epochgroupsync must be inactive when experimental=0")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartyobjectives"]) == false, "showpartyobjectives must be inactive when experimental=0")
 assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartytooltips"]) == false, "showpartytooltips must be inactive when experimental=0")
@@ -79,13 +78,12 @@ local function GetFrame(configKey)
 end
 
 local expFrame = GetFrame("experimental")
-local groupFrame = GetFrame("questiegroup")
 local epochGroupFrame = GetFrame("epochgroupsync")
 local objFrame = GetFrame("showpartyobjectives")
 local tooltipFrame = GetFrame("showpartytooltips")
 
--- Verify visual graying out and disabled status on all 4 children
-local expChildren = { groupFrame, epochGroupFrame, objFrame, tooltipFrame }
+-- Verify visual graying out and disabled status on all 3 children
+local expChildren = { epochGroupFrame, objFrame, tooltipFrame }
 for _, frame in ipairs(expChildren) do
   assert(frame.enabled == false, "Frame for " .. frame.data.config .. " should have frame.enabled == false")
   assert(frame.input:IsEnabled() == false, "Input for " .. frame.data.config .. " should be disabled")
@@ -93,14 +91,13 @@ for _, frame in ipairs(expChildren) do
   local r, g, b = frame.caption:GetTextColor()
   assert(r == 0.5 and g == 0.5 and b == 0.5, "Caption for " .. frame.data.config .. " should be grayed out (0.5, 0.5, 0.5)")
 end
-print("  ✓ PASS: All 4 experimental sub-features are properly grayed out and disabled initially")
+print("  ✓ PASS: All 3 experimental sub-features are properly grayed out and disabled initially")
 
 print("[TEST] Simulating enabling master Experimental toggle...")
 expFrame.input:SetChecked(true)
 expFrame.input:FireScript("OnClick")
 
 assert(pfQuest_config["experimental"] == "1", "experimental config should now be '1'")
-assert(groupFrame.enabled == true, "questiegroup should now be enabled")
 assert(epochGroupFrame.enabled == true, "epochgroupsync should now be enabled")
 assert(objFrame.enabled == true, "showpartyobjectives should now be enabled")
 assert(tooltipFrame.enabled == true, "showpartytooltips should now be enabled")
@@ -109,7 +106,6 @@ print("  ✓ PASS: Toggling master switch dynamically enables child options")
 print("[TEST] Simulating disabling master Experimental toggle...")
 expFrame.input:SetChecked(false)
 expFrame.input:FireScript("OnClick")
-assert(groupFrame.enabled == false, "questiegroup should now be disabled")
 assert(epochGroupFrame.enabled == false, "epochgroupsync should now be disabled")
 assert(objFrame.enabled == false, "showpartyobjectives should now be disabled")
 assert(tooltipFrame.enabled == false, "showpartytooltips should now be disabled")

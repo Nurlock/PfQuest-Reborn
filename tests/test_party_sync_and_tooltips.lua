@@ -1,5 +1,5 @@
--- Test Suite: Party Sync, Lag Spike Batching, Contextual NPC Counts & Ender Tracking
--- Verifies fixes for party objective collection lag, 0/x normalization, reload sync, and quest ender tooltips.
+-- Test Suite: Pure pfQuest-epoch Party Sync & Tooltips
+-- Verifies pfqe protocol (V1 batches, REMOVEQ, PFQUEST_SYNC_REQUEST), raid support, and tooltips.
 
 local mock = require("tests.mock_wow_api")
 local env = mock.create_env()
@@ -21,9 +21,9 @@ env.pfQuestConfig = env.CreateFrame("Frame", "pfQuestConfig")
 env.pfQuestConfig.path = "Interface\\AddOns\\pfQuest"
 env.pfQuest_config = {
   ["experimental"] = "1",
-  ["questiegroup"] = "1",
-  ["showpartyobjectives"] = "1",
+  ["epochgroupsync"] = "1",
   ["showpartytooltips"] = "1",
+  ["epochShowPartyProgress"] = "1",
   ["currentquestgivers"] = "1",
   ["trackingmethod"] = 1,
 }
@@ -34,8 +34,6 @@ env.pfQuest = {
   questlog = {},
   collapsedQuestIDs = {},
   announcedQuests = {},
-  partyQuests = {},
-  partyVisibility = {},
   queue = {},
   queueHead = 1,
   queueTail = 1,
@@ -46,16 +44,19 @@ load_file("compat/client.lua")
 load_file("database.lua")
 load_file("map.lua")
 load_file("quest.lua")
-load_file("questiecomms.lua")
-
-local comms = env.pfQuest.questieComms
-assert(comms, "questieComms must be loaded")
+load_file("announce.lua")
 
 -- Setup mock party
 env.GetNumPartyMembers = function() return 2 end
+env.GetNumRaidMembers = function() return 0 end
 env.UnitName = function(u)
   if u == "player" then return "LocalPlayer" end
+  if u == "party1" then return "PartyFriend" end
+  if u == "party2" then return "EpochFriend" end
   return "PartyFriend"
+end
+env.UnitClass = function(u)
+  return "Warrior", "WARRIOR"
 end
 
 env.GetQuestLogTitle = function(index)
@@ -64,6 +65,7 @@ env.GetQuestLogTitle = function(index)
 end
 env.pfQuestCompat = env.pfQuestCompat or {}
 env.pfQuestCompat.GetQuestLogTitle = env.GetQuestLogTitle
+env.GetNumQuestLogEntries = function() return 1 end
 env.GetNumQuestLeaderBoards = function(index)
   if index == 1 then return 1 end
   return 0
@@ -82,300 +84,216 @@ env.pfDB.quests.loc[100] = { T = "Defias Hunt" }
 env.pfDB.quests.data[100] = {
   lvl = 10,
   min = 5,
-  ["end"] = { U = { 240 } }, -- Ender NPC: Marshal Dughan (ID 240)
-  ["obj"] = { U = { 116 } }, -- Kill Mob: Defias Bandit (ID 116)
+  ["end"] = { U = { 240 } },
+  ["obj"] = { U = { 116 } },
 }
 env.pfDB.units = env.pfDB.units or { loc = {} }
 env.pfDB.units.loc[240] = "Marshal Dughan"
 env.pfDB.units.loc[116] = "Defias Bandit"
-
-print("[TEST] 1. Verifying lag spike prevention (no synchronous UpdateNodes on party updates)...")
-local updateNodesCalled = 0
-local origUpdateNodes = env.pfMap.UpdateNodes
-env.pfMap.UpdateNodes = function(self)
-  updateNodesCalled = updateNodesCalled + 1
-  if origUpdateNodes then origUpdateNodes(self) end
+env.pfDatabase = env.pfDatabase or {}
+local searchedQuestIds = {}
+env.pfDatabase.SearchQuestID = function(self, qid, meta)
+  table.insert(searchedQuestIds, { qid = qid, meta = meta })
 end
-
--- Simulate incoming party quest update packet
-local updatePacket = {
-  msgId = 1, -- QC_ID_BROADCAST_QUEST_UPDATE
-  quest = {
-    id = 100,
-    status = "ACT",
-    objectives = {
-      [1] = {
-        type = "m",
-        id = 116,
-        text = "Defias Bandit",
-        collected = 3,
-        needed = 10,
-        finished = false,
-      }
-    }
-  }
-}
-
-comms:OnCommReceived("questie", updatePacket, "PARTY", "PartyFriend")
-assert(updateNodesCalled == 0, "UpdateNodes must NOT be called synchronously on party update (was called " .. updateNodesCalled .. " times)")
-assert(env.pfMap.queue_update ~= nil, "pfMap.queue_update must be set to coalesce frame redraws")
-print("  ✓ PASS: Party objective packet batches updates without synchronous UpdateNodes lag")
-
-print("[TEST] 2. Verifying objective count normalization (lowercase keys & 0/x completion fix)...")
--- Packet where Questie sends lowercase 'collected', 'needed', and 'finished = true'
-local finishPacket = {
-  msgId = 1,
-  quest = {
-    id = 100,
-    isComplete = true,
-    objectives = {
-      [1] = {
-        type = "m",
-        id = 116,
-        text = "Defias Bandit",
-        collected = 10,
-        needed = 10,
-        finished = true,
-      }
-    }
-  }
-}
-comms:OnCommReceived("questie", finishPacket, "PARTY", "PartyFriend")
-
-local partyQuest = env.pfQuest.partyQuests["PartyFriend"][100]
-assert(partyQuest, "PartyFriend quest 100 should be recorded")
-local obj = partyQuest.objectives[1]
-assert(obj.fulfilled == 10, "fulfilled must be 10, got: " .. tostring(obj.fulfilled))
-assert(obj.required == 10, "required must be 10, got: " .. tostring(obj.required))
-assert(obj.finished == true, "finished must be true")
-
--- Test packet where finished=true but fulfilled was 0/nil: must normalize fulfilled = required
-local zeroFulfilledPacket = {
-  msgId = 1,
-  quest = {
-    id = 100,
-    isComplete = true,
-    objectives = {
-      [1] = {
-        type = "m",
-        id = 116,
-        text = "Defias Bandit",
-        fulfilled = 0,
-        required = 10,
-        finished = true,
-      }
-    }
-  }
-}
-comms:OnCommReceived("questie", zeroFulfilledPacket, "PARTY", "PartyFriend")
-local obj2 = env.pfQuest.partyQuests["PartyFriend"][100].objectives[1]
-assert(obj2.fulfilled == 10, "Finished objective must have fulfilled normalized to required (10), got: " .. tostring(obj2.fulfilled))
-print("  ✓ PASS: Lowercase key deserialization and completed 0/x normalization verified")
-
-print("[TEST] 3. Verifying /reload party synchronization lifecycle...")
--- Simulate reload: questlog in WoW client has 1 quest, but pfQuest.questlog is not populated yet
-env.GetNumQuestLogEntries = function() return 1 end
-env.pfQuest.questlog = {}
+env.pfMap = env.pfMap or {}
+env.pfMap.queue_update = nil
+env.pfMap.DeleteNode = env.pfMap.DeleteNode or function(self, addon, title) end
 
 local sentAddonMessages = {}
 env.SendAddonMessage = function(pfx, text, dist, target)
   table.insert(sentAddonMessages, { prefix = pfx, text = text, dist = dist, target = target })
 end
 
--- Fire PLAYER_ENTERING_WORLD before questlog is loaded
-comms:GetScript("OnEvent")() -- triggers with event=nil or PLAYER_ENTERING_WORLD simulation
-env.event = "PLAYER_ENTERING_WORLD"
--- Trigger PLAYER_ENTERING_WORLD on comms
-local commsScript = comms:GetScript("OnEvent")
-setfenv(commsScript, env)
-commsScript()
+env.UnitIsPlayer = function(u) return false end
 
--- Must NOT have broadcast an empty quest list
-local broadcastEmpty = false
-for _, msg in ipairs(sentAddonMessages) do
-  if string.find(msg.text, "QC_ID_BROADCAST_FULL_QUESTLIST") or (msg.prefix == "questie" and string.find(msg.text, "rawQuestList")) then
-    broadcastEmpty = true
-  end
-end
-assert(not broadcastEmpty, "Empty quest list must NOT be broadcast during PLAYER_ENTERING_WORLD")
-print("  ✓ PASS: Empty questlist suppressed during reload before questlog is loaded")
+-- Load pure pfQuest-epoch tooltip and comms module
+load_file("pfQuest-tooltip.lua")
 
--- Now simulate quest.lua queue completion
-env.pfQuest.questlog[100] = { title = "Defias Hunt", qlogid = 1, isComplete = false }
-env.pfQuest.needsGroupSync = true
-env.pfQuest.queueCount = 0
+local epoch = env.pfQuest.epochComms
+assert(epoch, "pfQuest.epochComms must be loaded")
+epoch.HookGameTooltip()
 
--- Simulate OnUpdate in quest.lua triggering SyncOnLoginOrReload
-if env.pfQuest.needsGroupSync then
-  env.pfQuest.needsGroupSync = nil
-  comms:SyncOnLoginOrReload()
-end
-assert(env.pfQuest.partyQuests["LocalPlayer"][100] ~= nil, "Local player quests must be synchronized into partyQuests")
-print("  ✓ PASS: Full group sync cleanly executes once quest queue finishes loading")
+print("[TEST] 1. Verifying inbound pfqe V1 batch message...")
+epoch.ProcessQuestData("PartyFriend", "V1|U116Q100:4:10;")
+local pData = epoch.partyQuestData["PartyFriend"]
+assert(pData ~= nil, "PartyFriend data must exist")
+assert(pData["Defias Bandit"] ~= nil, "Target 'Defias Bandit' must be mapped")
+local obj = pData["Defias Bandit"][1]
+assert(obj.quest == "Defias Hunt", "Quest must be 'Defias Hunt'")
+assert(obj.current == 4, "Current count must be 4")
+assert(obj.total == 10, "Total count must be 10")
+print("  ✓ PASS: Inbound pfqe V1 batch parsed into partyQuestData")
 
-print("[TEST] 4. Verifying Quest End NPC (NPC_END) tracking & tooltips...")
--- PartyFriend has completed quest 100 which turns in to Marshal Dughan (ID 240)
-local testTip = env.CreateFrame("Frame", "TestTooltip")
+print("[TEST] 2. Verifying GameTooltip unit hover shows party progress...")
+local testTip = env.GameTooltip
 testTip.lines = {}
 testTip.AddLine = function(self, text, r, g, b)
   table.insert(self.lines, text)
 end
-testTip.NumLines = function(self) return #self.lines end
-testTip.GetName = function(self) return "TestTooltip" end
+testTip.GetUnit = function(self)
+  return "Defias Bandit", "target"
+end
+testTip.Show = function(self) self.shown = true end
 
--- Hover over Marshal Dughan in 3D world (ShowWorldTooltip)
-comms:ShowWorldTooltip("Marshal Dughan", testTip)
-assert(#testTip.lines > 0, "Tooltip lines should be added for Marshal Dughan")
-local foundTurnIn = false
-local foundBandit = false
+-- Simulate hover
+testTip:FireScript("OnTooltipSetUnit")
+local foundProgress = false
 for _, line in ipairs(testTip.lines) do
-  if string.find(line, "Ready for turn%-in") then
-    foundTurnIn = true
-  end
-  if string.find(line, "Defias Bandit") then
-    foundBandit = true
+  if string.find(line, "PartyFriend") and string.find(line, "4/10") then
+    foundProgress = true
   end
 end
-assert(foundTurnIn, "Quest ender NPC tooltip must display 'Ready for turn-in'")
-assert(not foundBandit, "Quest ender NPC tooltip must NOT dump unrelated kill objectives (Defias Bandit)")
-print("  ✓ PASS: Quest ender NPC accurately displays party turn-in readiness without objective bleed")
+assert(foundProgress, "Tooltip must include party member and objective progress 4/10")
+print("  ✓ PASS: Unit tooltip displays colored party member progress")
 
-print("[TEST] 5. Verifying shared quest tooltip displays party progress when quest title already present...")
-local sharedTip = env.CreateFrame("Frame", "SharedTooltip")
-sharedTip.lines = {
-  "Defias Bandit",
-  "Level 4",
-  "Defias Hunt",
-  "  Defias Bandit: 3/10"
-}
-sharedTip.AddLine = function(self, text, r, g, b)
-  table.insert(self.lines, text)
-end
-sharedTip.NumLines = function(self) return #self.lines end
-sharedTip.GetName = function(self) return "SharedTooltip" end
--- Expose text lines via _G naming convention expected by TooltipHasQuest
-for i, line in ipairs(sharedTip.lines) do
-  env["SharedTooltipTextLeft" .. i] = { GetText = function() return line end }
-end
-
-comms:ShowWorldTooltip("Defias Bandit", sharedTip)
-
-local foundPartyLine = false
-local headerCount = 0
-for _, line in ipairs(sharedTip.lines) do
-  if string.find(line, "PartyFriend") and string.find(line, "10/10") then
-    foundPartyLine = true
-  end
-  if string.find(line, "%[!%] Defias Hunt") then
-    headerCount = headerCount + 1
+print("[TEST] 1b. Verifying inbound V1 batch draws party map nodes...")
+assert(#searchedQuestIds > 0, "Inbound V1 must trigger SearchQuestID for party map nodes")
+local foundNode = false
+for _, s in ipairs(searchedQuestIds) do
+  if s.qid == 100 and s.meta and s.meta.addon == "PARTY" and s.meta.partyMember == "PartyFriend" then
+    foundNode = true
   end
 end
-assert(foundPartyLine, "Party progress must be shown even when quest title was already in tooltip")
-assert(headerCount == 0, "Duplicate quest header must NOT be added if quest title was already in tooltip")
-print("  ✓ PASS: Shared quest tooltip appends party progress without duplicating quest header")
+assert(foundNode, "SearchQuestID must be called for quest 100 with PARTY/PartyFriend meta")
+print("  ✓ PASS: Inbound V1 batch wires party map node creation")
 
-print("[TEST] 6. Verifying local player quests are indexed on the very first hover...")
--- Clear partyQuests["LocalPlayer"] to simulate first hover state
-env.pfQuest.partyQuests["LocalPlayer"] = nil
-local firstHoverTip = env.CreateFrame("Frame", "FirstHoverTip")
-firstHoverTip.lines = {}
-firstHoverTip.AddLine = function(self, text, r, g, b)
-  table.insert(self.lines, text)
-end
-firstHoverTip.NumLines = function(self) return #self.lines end
-firstHoverTip.GetName = function(self) return "FirstHoverTip" end
+print("[TEST] 1c. Verifying pfMap tooltip wrapper does not crash on party data...")
+local fakeMeta = { quest = "Defias Hunt", item = {}, partyMember = "PartyFriend" }
+env.pfMap.ShowTooltip(nil, fakeMeta, env.GameTooltip)
+print("  ✓ PASS: pfMap tooltip wrapper runs with party data present")
 
-comms:ShowWorldTooltip("Defias Bandit", firstHoverTip)
-local foundLocalOnFirstHover = false
-for _, line in ipairs(firstHoverTip.lines) do
-  if string.find(line, "LocalPlayer") then
-    foundLocalOnFirstHover = true
-  end
-end
-assert(foundLocalOnFirstHover, "Local player quests must be indexed into party lookups on very first hover")
-print("  ✓ PASS: Local player quests indexed immediately on initial hover")
-
-print("[TEST] 7. Verifying dual-protocol comms: pfqe inbound and outbound sync...")
--- Test inbound pfqe V1 batch message from EpochFriend
-comms:OnPfqeReceived("V1|U6001Q100:3:5;", "PARTY", "EpochFriend")
-assert(env.pfQuest.partyQuests["EpochFriend"] ~= nil, "EpochFriend party data must exist")
-assert(env.pfQuest.partyQuests["EpochFriend"][100] ~= nil, "Quest 100 must be tracked for EpochFriend")
-assert(env.pfQuest.partyQuests["EpochFriend"][100].objectives[1].fulfilled == 3, "Fulfilled should be 3")
-assert(env.pfQuest.partyQuests["EpochFriend"][100].objectives[1].required == 5, "Required should be 5")
-
-local epochTip = env.CreateFrame("Frame", "EpochTip")
-epochTip.lines = {}
-epochTip.AddLine = function(self, text) table.insert(self.lines, text) end
-epochTip.NumLines = function(self) return #self.lines end
-epochTip.GetName = function(self) return "EpochTip" end
-
-comms:ShowWorldTooltip("Defias Bandit", epochTip)
-local foundEpochProgress = false
-for _, line in ipairs(epochTip.lines) do
-  if string.find(line, "EpochFriend") and string.find(line, "3/5") then
-    foundEpochProgress = true
-  end
-end
-assert(foundEpochProgress, "EpochFriend progress 3/5 must appear in Defias Bandit tooltip")
-print("  ✓ PASS: Inbound pfqe V1 packet deserialized and surfaced in tooltips")
-
--- Test inbound REMOVEQ message
-comms:OnPfqeReceived("REMOVEQ:100:Defias Hunt", "PARTY", "EpochFriend")
-assert(env.pfQuest.partyQuests["EpochFriend"][100] == nil, "Quest 100 must be removed after REMOVEQ")
+print("[TEST] 3. Verifying inbound REMOVEQ message purges quest data...")
+epoch.ProcessQuestData("PartyFriend", "REMOVEQ:100:Defias Hunt")
+assert(pData["Defias Bandit"] == nil, "Defias Hunt objective should be purged after REMOVEQ")
 print("  ✓ PASS: Inbound REMOVEQ cleanly purges party quest data")
 
--- Test outbound BroadcastPfqeQuestUpdate
+print("[TEST] 4. Verifying outbound pfqe V1 broadcast via ShareQuestData...")
 sentAddonMessages = {}
-comms:BroadcastPfqeQuestUpdate(100)
-local foundPfqeOut = false
+epoch.RebuildQuestMappings()
+epoch.ShareQuestData(true)
+
+local foundOutboundV1 = false
 for _, msg in ipairs(sentAddonMessages) do
-  if msg.prefix == "pfqe" and string.find(msg.text, "V1|") and string.find(msg.text, "Q100:") then
-    foundPfqeOut = true
+  if msg.prefix == "pfqe" and string.find(msg.text, "V1|") and string.find(msg.text, "U116Q100:3:10;") then
+    foundOutboundV1 = true
+    assert(msg.dist == "PARTY", "Message must be sent to PARTY distribution")
   end
 end
-assert(foundPfqeOut, "BroadcastPfqeQuestUpdate must send V1 pfqe packet with quest 100")
+assert(foundOutboundV1, "ShareQuestData must broadcast V1 entry for U116Q100:3:10;")
 print("  ✓ PASS: Outbound pfqe quest update correctly formatted and transmitted")
 
--- Test PFQUEST_SYNC_REQUEST event handler
+print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST inbound triggers response...")
 sentAddonMessages = {}
-env.event = "CHAT_MSG_ADDON"
 env.arg1 = "PFQUEST_SYNC_REQUEST"
 env.arg2 = "1"
 env.arg3 = "PARTY"
-env.arg4 = "EpochFriend"
-commsScript()
+env.arg4 = "PartyFriend"
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "PartyFriend")
+
 local syncReplied = false
 for _, msg in ipairs(sentAddonMessages) do
   if msg.prefix == "pfqe" and string.find(msg.text, "V1|") then
     syncReplied = true
   end
 end
-assert(syncReplied, "PFQUEST_SYNC_REQUEST must trigger full quest list broadcast on pfqe prefix")
-print("  ✓ PASS: PFQUEST_SYNC_REQUEST triggers dual-protocol broadcast")
+assert(syncReplied, "PFQUEST_SYNC_REQUEST from party member must trigger full quest list broadcast on pfqe")
+print("  ✓ PASS: Inbound PFQUEST_SYNC_REQUEST triggers pfqe broadcast")
 
--- Test independent protocol toggles
-env.pfQuest_config["epochgroupsync"] = "0"
-assert(comms:IsEpochSyncEnabled() == false, "epochgroupsync=0 must disable epoch sync")
-assert(comms:IsQuestieEnabled() == true, "questiegroup=1 must keep questie sync active")
+print("[TEST] 6. Verifying raid distribution routing...")
+env.GetNumRaidMembers = function() return 10 end
 sentAddonMessages = {}
-comms:BroadcastQuestUpdate(100)
-local foundPfqeWhenDisabled = false
-local foundQuestieWhenEnabled = false
+epoch.ShareQuestData(true)
+local foundRaidMsg = false
 for _, msg in ipairs(sentAddonMessages) do
-  if msg.prefix == "pfqe" then foundPfqeWhenDisabled = true end
-  if msg.prefix == "questie" then foundQuestieWhenEnabled = true end
+  if msg.prefix == "pfqe" and msg.dist == "RAID" then
+    foundRaidMsg = true
+  end
 end
-assert(foundPfqeWhenDisabled == false, "Must not broadcast pfqe when epochgroupsync=0")
-assert(foundQuestieWhenEnabled == true, "Must still broadcast questie when questiegroup=1")
+assert(foundRaidMsg, "ShareQuestData must route to RAID channel when in a raid")
+print("  ✓ PASS: Raid distribution cleanly routed to RAID channel")
 
-env.pfQuest_config["questiegroup"] = "0"
-assert(comms:IsQuestieEnabled() == false, "questiegroup=0 must disable questie sync")
-assert(comms:IsEnabled() == false, "Disabling both protocols must disable comms completely")
+print("[TEST] 7. Verifying config toggles...")
+env.pfQuest_config["epochgroupsync"] = "0"
+assert(epoch.IsSyncEnabled() == false, "epochgroupsync=0 must disable sync")
+sentAddonMessages = {}
+epoch.ShareQuestData(true)
+assert(#sentAddonMessages == 0, "No messages should be sent when epochgroupsync=0")
 
 env.pfQuest_config["epochgroupsync"] = "1"
-env.pfQuest_config["questiegroup"] = "1"
-assert(comms:IsEnabled() == true, "Re-enabling protocols must restore comms")
+assert(epoch.IsSyncEnabled() == true, "epochgroupsync=1 must enable sync")
 
-print("  ✓ PASS: Independent toggles for Questie and pfQuest-epoch sharing verified")
+print("  ✓ PASS: Protocol enablement correctly governed by epochgroupsync")
+
+print("[TEST] 8. Verifying BroadcastQuestRemove and CleanupPartyData exports...")
+assert(epoch.BroadcastQuestRemove ~= nil, "BroadcastQuestRemove must be exported")
+env.GetNumRaidMembers = function() return 0 end
+env.GetNumPartyMembers = function() return 2 end
+sentAddonMessages = {}
+epoch.BroadcastQuestRemove(100, "Defias Hunt")
+local foundRemove = false
+for _, msg in ipairs(sentAddonMessages) do
+  if msg.prefix == "pfqe" and msg.text == "REMOVEQ:100:Defias Hunt" and msg.dist == "PARTY" then
+    foundRemove = true
+  end
+end
+assert(foundRemove, "BroadcastQuestRemove must send REMOVEQ:100:Defias Hunt to PARTY")
+epoch.CleanupPartyData()
+print("  ✓ PASS: BroadcastQuestRemove and CleanupPartyData work")
+
+print("[TEST] 9. Verifying colon-tolerant QUEST parsing...")
+env.GetNumRaidMembers = function() return 0 end
+env.GetNumPartyMembers = function() return 2 end
+env.AdvanceTime(30)
+epoch.ProcessQuestData("ColonFriend", "QUEST:Darkshore:Escort: The Missing Diplomat:Escort completed:3:10")
+local cData = epoch.partyQuestData["ColonFriend"]
+assert(cData ~= nil, "ColonFriend data must exist")
+local foundColon = false
+for targetKey, quests in pairs(cData) do
+  for _, q in ipairs(quests) do
+    if q.quest == "Escort: The Missing Diplomat" and q.current == 3 and q.total == 10 then
+      foundColon = true
+    end
+  end
+end
+assert(foundColon, "QUEST with colons in quest name must parse target/quest/objective/counts")
+print("  ✓ PASS: Colon-tolerant QUEST parsing works")
+
+print("[TEST] 10. Verifying out-of-range progress is rejected...")
+local beforeCount = 0
+for _, quests in pairs(epoch.partyQuestData["Troll"] or {}) do
+  beforeCount = beforeCount + table.getn(quests)
+end
+epoch.ProcessQuestData("Troll", "V1|U116Q100:10:0;")
+epoch.ProcessQuestData("Troll", "V1|U116Q100:99999:10;")
+local afterCount = 0
+for _, quests in pairs(epoch.partyQuestData["Troll"] or {}) do
+  afterCount = afterCount + table.getn(quests)
+end
+assert(afterCount == beforeCount, "Out-of-range entries (total=0, current>total) must be dropped")
+assert(epoch.IsValidProgress(3, 10) == true, "3/10 must be valid")
+assert(epoch.IsValidProgress(10, 0) == false, "total=0 must be invalid")
+assert(epoch.IsValidProgress(11, 10) == false, "current>total must be invalid")
+print("  ✓ PASS: Out-of-range progress rejected")
+
+print("[TEST] 11. Verifying REMOVEQ matches on quest ID, not just title...")
+epoch.ProcessQuestData("IdFriend", "V1|U116Q100:4:10;")
+assert(epoch.partyQuestData["IdFriend"] ~= nil, "IdFriend data must exist")
+-- inject a same-title entry with a different quest id; REMOVEQ:100 must keep it
+table.insert(epoch.partyQuestData["IdFriend"]["Defias Bandit"], {
+  quest = "Defias Hunt", questId = 999, objective = "Other", current = 1, total = 5, lastUpdate = 0,
+})
+epoch.ProcessQuestData("IdFriend", "REMOVEQ:100:Defias Hunt")
+local remaining = epoch.partyQuestData["IdFriend"]["Defias Bandit"]
+assert(remaining ~= nil and table.getn(remaining) == 1 and remaining[1].questId == 999,
+  "REMOVEQ must only remove entries matching the quest ID")
+print("  ✓ PASS: REMOVEQ ID-scoped removal works")
+
+print("[TEST] 12. Verifying sent-keys-only broadcast state...")
+sentAddonMessages = {}
+epoch.ShareQuestData(true)
+local sentOnce = #sentAddonMessages
+epoch.ShareQuestData(false)
+assert(#sentAddonMessages == sentOnce, "Second delta broadcast with no changes must send nothing")
+print("  ✓ PASS: Broadcast state only tracks sent keys")
 
 print("\ntest_party_sync_and_tooltips PASSED successfully!")

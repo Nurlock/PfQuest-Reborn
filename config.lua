@@ -139,7 +139,6 @@ pfQuest_defconfig = {
 
   { text = L["Experimental Features"], default = nil, type = "header" },
   { text = L["Enable Experimental Features"], default = "0", type = "checkbox", config = "experimental" },
-  { text = L["Enable Questie Group Sync"], default = "1", type = "checkbox", config = "questiegroup", parent = "experimental" },
   { text = L["Enable pfQuest-epoch Group Sync"], default = "1", type = "checkbox", config = "epochgroupsync", parent = "experimental" },
   { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives", parent = "experimental" },
   { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "experimental" },

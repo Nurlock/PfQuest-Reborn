@@ -360,11 +360,6 @@ pfMap.tooltip:SetScript("OnShow", function()
       end
     end
   end
-
-  -- Reforged: Questie group quest following compatibility
-  if pfQuestieComms and pfQuestieComms.ShowWorldTooltip then
-    pfQuestieComms:ShowWorldTooltip(name, GameTooltip)
-  end
 end)
 
 -- dummy function that can be used by extensions
@@ -454,11 +449,8 @@ function pfMap:ShowTooltip(meta, tooltip)
                 strfind(text, pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
               if monsterName and meta["spawn"] == monsterName then
                 catch_obj = true
-                local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
-                if not inGroup then
-                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                  tooltip:AddLine("|cffaaaaaa- |r" .. monsterName .. ": " .. objNum .. "/" .. objNeeded, r, g, b)
-                end
+                local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                tooltip:AddLine("|cffaaaaaa- |r" .. monsterName .. ": " .. objNum .. "/" .. objNeeded, r, g, b)
               end
             elseif table.getn(meta["item"]) > 0 and type == "item" and meta["droprate"] then
               -- loot
@@ -467,27 +459,24 @@ function pfMap:ShowTooltip(meta, tooltip)
               for mid, item in pairs(meta["item"]) do
                 if item == itemName then
                   catch_obj = true
-                  local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
-                  if not inGroup then
-                    local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                    local dr, dg, db = pfMap.tooltip:GetColor(tonumber(meta["droprate"]), 100)
-                    local lootcolor = string.format("%02x%02x%02x", dr * 255, dg * 255, db * 255)
-                    tooltip:AddLine(
-                      "|cffaaaaaa- |r"
-                        .. itemName
-                        .. ": "
-                        .. objNum
-                        .. "/"
-                        .. objNeeded
-                        .. " |cff555555[|cff"
-                        .. lootcolor
-                        .. meta["droprate"]
-                        .. "%|cff555555]",
-                      r,
-                      g,
-                      b
-                    )
-                  end
+                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                  local dr, dg, db = pfMap.tooltip:GetColor(tonumber(meta["droprate"]), 100)
+                  local lootcolor = string.format("%02x%02x%02x", dr * 255, dg * 255, db * 255)
+                  tooltip:AddLine(
+                    "|cffaaaaaa- |r"
+                      .. itemName
+                      .. ": "
+                      .. objNum
+                      .. "/"
+                      .. objNeeded
+                      .. " |cff555555[|cff"
+                      .. lootcolor
+                      .. meta["droprate"]
+                      .. "%|cff555555]",
+                    r,
+                    g,
+                    b
+                  )
                 end
               end
             elseif table.getn(meta["item"]) > 0 and type == "item" and meta["sellcount"] then
@@ -497,46 +486,35 @@ function pfMap:ShowTooltip(meta, tooltip)
               for mid, item in pairs(meta["item"]) do
                 if item == itemName then
                   catch_obj = true
-                  local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
-                  if not inGroup then
-                    local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                    local sellcount = tonumber(meta["sellcount"]) > 0
-                        and " |cff555555[|cffcccccc" .. meta["sellcount"] .. "x" .. "|cff555555]"
-                      or ""
-                    tooltip:AddLine(
-                      "|cffaaaaaa- |r"
-                        .. pfQuest_Loc["Buy"]
-                        .. ": "
-                        .. itemName
-                        .. ": "
-                        .. objNum
-                        .. "/"
-                        .. objNeeded
-                        .. sellcount,
-                      r,
-                      g,
-                      b
-                    )
-                  end
+                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                  local sellcount = tonumber(meta["sellcount"]) > 0
+                      and " |cff555555[|cffcccccc" .. meta["sellcount"] .. "x" .. "|cff555555]"
+                    or ""
+                  tooltip:AddLine(
+                    "|cffaaaaaa- |r"
+                      .. pfQuest_Loc["Buy"]
+                      .. ": "
+                      .. itemName
+                      .. ": "
+                      .. objNum
+                      .. "/"
+                      .. objNeeded
+                      .. sellcount,
+                    r,
+                    g,
+                    b
+                  )
                 end
               end
             end
           end
-        end
-        -- Reforged: show party progress for shared active quests
-        if pfQuestieComms and pfQuestieComms.AddPartyTooltipLines then
-          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip, meta)
         end
       end
     end
 
     if not catch then
       if meta["partyMember"] then
-        local pColor = pfQuestieComms and pfQuestieComms:GetPlayerColor(meta["partyMember"]) or "|cff33ffcc"
-        tooltip:AddLine("|cff555555[|cff33ffcc!|cff555555]|r " .. meta["quest"] .. " (" .. pColor .. (pfQuest_Loc["Party: "] or "Party: ") .. meta["partyMember"] .. "|r)", 1, 1, 0.7)
-        if pfQuestieComms and pfQuestieComms.AddPartyTooltipLines then
-          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip, meta)
-        end
+        tooltip:AddLine("|cff555555[|cff33ffcc!|cff555555]|r " .. (meta["quest"] or "?") .. " (|cff33ffcc" .. (pfQuest_Loc["Party: "] or "Party: ") .. meta["partyMember"] .. "|r)", 1, 1, 0.7)
       else
         tooltip:AddLine("|cff555555[|cffffcc00!|cff555555]|r " .. meta["quest"], 1, 1, 0.7)
       end
