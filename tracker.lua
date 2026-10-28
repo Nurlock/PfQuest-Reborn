@@ -781,7 +781,9 @@ function tracker.RefreshZoneTracker()
   -- zone so tracker entries can reuse the same icon metadata as map pins.
   if playerZone and pfMap.nodes["PFQUEST"] and pfMap.nodes["PFQUEST"][playerZone] then
     for coords, coordNode in pairs(pfMap.nodes["PFQUEST"][playerZone]) do
-      for title, node in pairs(coordNode) do
+      for storeKey, node in pairs(coordNode) do
+        -- display the bare quest title, never the id-scoped storage key
+        local title = pfMap.DisplayTitle(storeKey, node)
         local qid = node.questid or title
         if pfQuest.questlog[qid] and not pfQuest.questlog[qid].collapsed then
           local current = localQuestNodes[qid]
