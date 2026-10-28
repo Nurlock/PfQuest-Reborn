@@ -68,9 +68,8 @@ end
 
 local expand_states = {}
 
-local function GetQuestSortMode()
-  return pfQuest_config["trackerquestsort"] == "distance" and "distance" or "level"
-end
+-- Shared with route.lua: defined once on pfQuest (quest.lua).
+local GetQuestSortMode = pfQuest.GetQuestSortMode
 
 -- Old-client Lua can misbehave with math.huge in sort fallbacks; use a plain
 -- numeric sentinel so "no distance" always sorts last without nil comparisons.
