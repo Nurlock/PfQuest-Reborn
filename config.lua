@@ -54,6 +54,11 @@ local reset = {
 }
 
 -- default config
+-- Category order (most-touched first): Quests, Tracker, Map & Minimap,
+-- Group Sync & Chat, Loot Panel, Nameplates, Automation, General.
+-- Entries support type="subheader" for in-tab grouping. Sub-headers render
+-- as a non-interactive accent caption and take no part in parent/child
+-- dependency logic.
 pfQuest_defconfig = {
   { -- 1: All Quests; 2: Tracked; 3: Manual; 4: Hide
     config = "trackingmethod",
@@ -68,31 +73,38 @@ pfQuest_defconfig = {
     type = nil,
   },
 
-  { text = L["General"], default = nil, type = "header" },
-  { text = L["Enable World Map Menu"], default = "1", type = "checkbox", config = "worldmapmenu" },
-  { text = L["Enable Minimap Button"], default = "1", type = "checkbox", config = "minimapbutton" },
+  { text = L["Quests"], default = nil, type = "header" },
+  { text = L["Which Quests To Show"], default = nil, type = "subheader" },
+  { text = L["Display Available Quest Givers"], default = "1", type = "checkbox", config = "allquestgivers" },
+  { text = L["Display Current Quest Givers"], default = "1", type = "checkbox", config = "currentquestgivers" },
+  { text = L["Display Low Level Quest Givers"], default = "0", type = "checkbox", config = "showlowlevel" },
+  { text = L["Display Level+3 Quest Givers"], default = "0", type = "checkbox", config = "showhighlevel" },
+  { text = L["Display Event & Daily Quests"], default = "0", type = "checkbox", config = "showfestival" },
+  { text = L["Filters"], default = nil, type = "subheader" },
+  { text = L["Hide PvP & Battleground Quests"], default = "0", type = "checkbox", config = "epochHidePvPQuests" },
+  { text = L["Hide Commission Quests"], default = "0", type = "checkbox", config = "epochHideCommissionQuests" },
+  { text = L["Hide Coin Quests"], default = "0", type = "checkbox", config = "epochHideCoinQuests" },
+  { text = L["Hide Cloth Donation Quests"], default = "0", type = "checkbox", config = "epochHideDonationQuests" },
+  { text = L["Hide Chicken Quests"], default = "0", type = "checkbox", config = "epochHideChickenQuests" },
+  { text = L["Hide Corrupted Felwood Plant Quests"], default = "0", type = "checkbox", config = "epochHideFelwoodFlowers" },
+
+  { text = L["Tracker"], default = nil, type = "header" },
   -- Default the pfQuest tracker OFF when GW2 UI is present -- GW2 UI has its
   -- own quest tracker and the maintainer wants that one used instead. Only a
   -- NEW/never-set value picks this up (existing saved configs keep their
   -- choice), and standalone installs still default it ON.
   { text = L["Enable Quest Tracker"], default = (pfQuestTheme and pfQuestTheme.gw2) and "0" or "1", type = "checkbox", config = "showtracker" },
-  { text = L["Enable Quest Log Buttons"], default = "1", type = "checkbox", config = "questlogbuttons" },
-  { text = L["Enable Quest Link Support"], default = "1", type = "checkbox", config = "questlinks" },
-  { text = L["Show Database IDs"], default = "0", type = "checkbox", config = "showids" },
-  { text = L["Draw Favorites On Login"], default = "0", type = "checkbox", config = "favonlogin" },
-  { text = L["Minimum Item Drop Chance"], default = "1", type = "text", config = "mindropchance" },
-  { text = L["Show Tooltips"], default = "1", type = "checkbox", config = "showtooltips" },
-  { text = L["Show Help On Tooltips"], default = "1", type = "checkbox", config = "tooltiphelp" },
-  { text = L["Show Level On Quest Tracker"], default = "1", type = "checkbox", config = "trackerlevel" },
-  { text = L["Show Level On Quest Log"], default = "0", type = "checkbox", config = "questloglevel" },
-
-  { text = L["Questing"], default = nil, type = "header" },
+  { text = L["Display"], default = nil, type = "subheader" },
   { text = L["Quest Tracker Visibility"], default = "0", type = "text", config = "trackeralpha" },
   { text = L["Quest Tracker Font Size"], default = "12", type = "text", config = "trackerfontsize" },
   { text = L["Quest Tracker Max Width"], default = "300", type = "text", config = "trackerwidth" },
   { text = L["Quest Tracker Scale"], default = "1", type = "text", config = "trackerscale" },
   { text = L["Quest Tracker Progress Bars"], default = "1", type = "checkbox", config = "trackerbars" },
   { text = L["Quest Tracker Unfold Objectives"], default = "0", type = "checkbox", config = "trackerexpand" },
+  { text = L["Show Level On Quest Tracker"], default = "1", type = "checkbox", config = "trackerlevel" },
+
+  { text = L["Map & Minimap"], default = nil, type = "header" },
+  { text = L["Objectives"], default = nil, type = "subheader" },
   { text = L["Quest Objective Spawn Points (World Map)"], default = "1", type = "checkbox", config = "showspawn" },
   {
     text = L["Quest Objective Spawn Points (Mini Map)"],
@@ -102,21 +114,9 @@ pfQuest_defconfig = {
   },
   { text = L["Quest Objective Icons (World Map)"], default = "1", type = "checkbox", config = "showcluster" },
   { text = L["Quest Objective Icons (Mini Map)"], default = "0", type = "checkbox", config = "showclustermini" },
-  { text = L["Display Available Quest Givers"], default = "1", type = "checkbox", config = "allquestgivers" },
-  { text = L["Display Current Quest Givers"], default = "1", type = "checkbox", config = "currentquestgivers" },
-  { text = L["Display Low Level Quest Givers"], default = "0", type = "checkbox", config = "showlowlevel" },
-  { text = L["Display Level+3 Quest Givers"], default = "0", type = "checkbox", config = "showhighlevel" },
-  { text = L["Display Event & Daily Quests"], default = "0", type = "checkbox", config = "showfestival" },
-  { text = L["Hide PvP & Battleground Quests"], default = "0", type = "checkbox", config = "epochHidePvPQuests" },
-  { text = L["Hide Commission Quests"], default = "0", type = "checkbox", config = "epochHideCommissionQuests" },
-  { text = L["Hide Coin Quests"], default = "0", type = "checkbox", config = "epochHideCoinQuests" },
-  { text = L["Hide Cloth Donation Quests"], default = "0", type = "checkbox", config = "epochHideDonationQuests" },
-  { text = L["Hide Chicken Quests"], default = "0", type = "checkbox", config = "epochHideChickenQuests" },
-  { text = L["Hide Corrupted Felwood Plant Quests"], default = "0", type = "checkbox", config = "epochHideFelwoodFlowers" },
-
-  { text = L["Map & Minimap"], default = nil, type = "header" },
-  { text = L["Enable Minimap Nodes"], default = "1", type = "checkbox", config = "minimapnodes" },
   { text = L["Use Icons For Tracking Nodes"], default = "1", type = "checkbox", config = "trackingicons" },
+  { text = L["Nodes"], default = nil, type = "subheader" },
+  { text = L["Enable Minimap Nodes"], default = "1", type = "checkbox", config = "minimapnodes" },
   { text = L["Use Monochrome Cluster Icons"], default = "0", type = "checkbox", config = "clustermono" },
   { text = L["Use Cut-Out Minimap Node Icons"], default = "1", type = "checkbox", config = "cutoutminimap" },
   { text = L["Use Cut-Out World Map Node Icons"], default = "0", type = "checkbox", config = "cutoutworldmap" },
@@ -127,8 +127,7 @@ pfQuest_defconfig = {
   { text = L["Minimap Node Size"], default = "14", type = "slider", config = "minimapNodeSize", min = 8, max = 24, step = 1, format = "%dpx" },
   { text = L["Node Fade Transparency"], default = "0.3", type = "text", config = "nodefade" },
   { text = L["Highlight Nodes On Mouseover"], default = "1", type = "checkbox", config = "mouseover" },
-
-  { text = L["Routes"], default = nil, type = "header" },
+  { text = L["Routes"], default = nil, type = "subheader" },
   { text = L["Show Route Between Objects"], default = "1", type = "checkbox", config = "routes" },
   { text = L["Include Unified Quest Locations"], default = "1", type = "checkbox", config = "routecluster", parent = "routes" },
   { text = L["Include Quest Enders"], default = "1", type = "checkbox", config = "routeender", parent = "routes" },
@@ -136,14 +135,24 @@ pfQuest_defconfig = {
   { text = L["Show Route On Minimap"], default = "0", type = "checkbox", config = "routeminimap", parent = "routes" },
   { text = L["Show Arrow Along Routes"], default = "1", type = "checkbox", config = "arrow", parent = "routes" },
   { text = L["Arrow Scale"], default = "1.0", type = "slider", config = "arrowscale", min = 0.5, max = 3.0, step = 0.1, parent = "arrow" },
+  { text = L["Continent & Dungeon"], default = nil, type = "subheader" },
+  { text = L["Display Pins on Continent Map"], default = "1", type = "checkbox", config = "epochContinentPins" },
+  { text = L["Continent Node Size"], default = "12", type = "slider", config = "continentNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
+  { text = L["Continent Utility Node Size"], default = "14", type = "slider", config = "continentUtilityNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
+  { text = L["Show Pins on Dungeon Maps"], default = "1", type = "checkbox", config = "epochDungeonPins" },
 
-  { text = L["Experimental Features"], default = nil, type = "header" },
-  { text = L["Enable Experimental Features"], default = "0", type = "checkbox", config = "experimental" },
-  { text = L["Enable pfQuest-epoch Group Sync"], default = "1", type = "checkbox", config = "epochgroupsync", parent = "experimental" },
-  { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives", parent = "experimental" },
-  { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "experimental" },
+  { text = L["Group Sync & Chat"], default = nil, type = "header" },
+  { text = L["Enable pfQuest-epoch Group Sync"], default = "1", type = "checkbox", config = "epochgroupsync" },
+  { text = L["Show Party Objectives On Map"], default = "1", type = "checkbox", config = "showpartyobjectives", parent = "epochgroupsync" },
+  { text = L["Show Party Progress In Tooltips"], default = "1", type = "checkbox", config = "showpartytooltips", parent = "epochgroupsync" },
+  { text = L["Announcements"], default = nil, type = "subheader" },
+  { text = L["Announce Quest Completion to Party"], default = "1", type = "checkbox", config = "questannounce" },
+  { text = L["Announce Objective Progress"], default = "0", type = "checkbox", config = "epochannounceRemaining" },
+  { text = L["Announce Objective Completion"], default = "1", type = "checkbox", config = "epochannounceFinished" },
+  { text = L["Include Item Links in Announcements"], default = "1", type = "checkbox", config = "epochannounceShowItem" },
 
-  { text = L["Rare Loot Panel"], default = nil, type = "header" },
+  { text = L["Loot Panel"], default = nil, type = "header" },
+  { text = L["Minimum Item Drop Chance"], default = "1", type = "text", config = "mindropchance" },
   { text = L["Include Pooled Loot"], default = "1", type = "checkbox", config = "epochLootPanelShowReference" },
   { text = L["Include Unknown Drop Chance"], default = "0", type = "checkbox", config = "epochLootPanelShowUnknownChance" },
   { text = L["Show Armor & Weapons"], default = "1", type = "checkbox", config = "epochLootPanelShowEquip" },
@@ -159,23 +168,24 @@ pfQuest_defconfig = {
   { text = L["Nameplate Icon X Position"], default = "-25", type = "slider", config = "nameplateX", min = -100, max = 100, step = 1, parent = "epochnameplatesEnabled" },
   { text = L["Nameplate Icon Y Position"], default = "-5", type = "slider", config = "nameplateY", min = -100, max = 100, step = 1, parent = "epochnameplatesEnabled" },
 
-  { text = L["Continent & Dungeon Maps"], default = nil, type = "header" },
-  { text = L["Display Pins on Continent Map"], default = "1", type = "checkbox", config = "epochContinentPins" },
-  { text = L["Continent Node Size"], default = "12", type = "slider", config = "continentNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
-  { text = L["Continent Utility Node Size"], default = "14", type = "slider", config = "continentUtilityNodeSize", min = 8, max = 24, step = 1, format = "%dpx", parent = "epochContinentPins" },
-  { text = L["Show Pins on Dungeon Maps"], default = "1", type = "checkbox", config = "epochDungeonPins" },
-
-  { text = L["Quest Automation"], default = nil, type = "header" },
+  { text = L["Automation"], default = nil, type = "header" },
   { text = L["Automatically Accept & Turn-In Quests"], default = "0", type = "checkbox", config = "epochAutoQuests" },
   { text = L["Skip Accepting Low Level Quests"], default = "1", type = "checkbox", config = "epochAutoQuestsSkipLowLevel", parent = "epochAutoQuests" },
   { text = L["Skip Accepting Commission Quests"], default = "1", type = "checkbox", config = "epochSkipCommissionQuests", parent = "epochAutoQuests" },
   { text = L["Automate Runecloth Turn-Ins"], default = "0", type = "checkbox", config = "epochAutomateRuneclothDonations", parent = "epochAutoQuests" },
 
-  { text = L["Chat Announcements"], default = nil, type = "header" },
-  { text = L["Announce Quest Completion to Party"], default = "1", type = "checkbox", config = "questannounce" },
-  { text = L["Announce Objective Progress"], default = "0", type = "checkbox", config = "epochannounceRemaining" },
-  { text = L["Announce Objective Completion"], default = "1", type = "checkbox", config = "epochannounceFinished" },
-  { text = L["Include Item Links in Announcements"], default = "1", type = "checkbox", config = "epochannounceShowItem" },
+  { text = L["General"], default = nil, type = "header" },
+  { text = L["Interface"], default = nil, type = "subheader" },
+  { text = L["Enable World Map Menu"], default = "1", type = "checkbox", config = "worldmapmenu" },
+  { text = L["Enable Minimap Button"], default = "1", type = "checkbox", config = "minimapbutton" },
+  { text = L["Enable Quest Log Buttons"], default = "1", type = "checkbox", config = "questlogbuttons" },
+  { text = L["Enable Quest Link Support"], default = "1", type = "checkbox", config = "questlinks" },
+  { text = L["Show Database IDs"], default = "0", type = "checkbox", config = "showids" },
+  { text = L["Draw Favorites On Login"], default = "0", type = "checkbox", config = "favonlogin" },
+  { text = L["Tooltips"], default = nil, type = "subheader" },
+  { text = L["Show Tooltips"], default = "1", type = "checkbox", config = "showtooltips" },
+  { text = L["Show Help On Tooltips"], default = "1", type = "checkbox", config = "tooltiphelp" },
+  { text = L["Show Level On Quest Log"], default = "0", type = "checkbox", config = "questloglevel" },
 
   { text = L["User Data"], default = nil, type = "header" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config },
@@ -572,9 +582,10 @@ function pfQuestConfig:CreateConfigEntries(config)
     local currentY = -34
 
     for _, data in ipairs(tabInfo.entries) do
+      local isSubheader = (data.type == "subheader")
       local frame = CreateFrame("Frame", "pfQuestConfig" .. count, panel)
       frame:SetWidth(panelWidth - 20)
-      frame:SetHeight(rowHeight)
+      frame:SetHeight(isSubheader and 20 or rowHeight)
       frame:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, currentY)
       frame.data = data
 
@@ -584,6 +595,20 @@ function pfQuestConfig:CreateConfigEntries(config)
       end
       table.insert(self.entryFrames, frame)
 
+      if isSubheader then
+        -- Non-interactive accent caption; takes no height beyond its own row
+        -- and is skipped by parent/child dependency logic (no config/parent).
+        frame.caption = frame:CreateFontString("Status", "LOW", "GameFontWhite")
+        frame.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+        frame.caption:SetPoint("LEFT", 5, 0)
+        frame.caption:SetPoint("RIGHT", -10, 0)
+        frame.caption:SetJustifyH("LEFT")
+        frame.caption:SetText(data.text)
+        frame.caption:SetTextColor(a[1], a[2], a[3], 1)
+        frame.enabled = true
+        count = count + 1
+        currentY = currentY - 22
+      else
       local indent = 5
       if data.parent then
         local p = self.configMap and self.configMap[data.parent]
@@ -731,6 +756,7 @@ function pfQuestConfig:CreateConfigEntries(config)
 
       count = count + 1
       currentY = currentY - (rowHeight + rowSpacing)
+      end
     end
 
     panel.contentHeight = math.abs(currentY) + 15
@@ -807,7 +833,7 @@ end
 function pfQuestConfig:UpdateDependencies()
   if not self.entryFrames then return end
   for _, frame in ipairs(self.entryFrames) do
-    if frame.data then
+    if frame.data and frame.data.type ~= "subheader" then
       local active = self:IsEntryActive(frame.data)
       self:SetEntryEnabled(frame, active)
     end
@@ -900,6 +926,8 @@ do -- welcome/init popup dialog
     arrow = 1,
     mode = 2,
     query = 1,
+    tracker = 1,
+    groupsync = 1,
   }
 
   local desaturate = function(texture, state)
@@ -918,7 +946,7 @@ do -- welcome/init popup dialog
   pfQuestInit = CreateFrame("Frame", "pfQuestInit", UIParent)
   pfQuestInit:Hide()
   pfQuestInit:SetWidth(420)
-  pfQuestInit:SetHeight(310)
+  pfQuestInit:SetHeight(370)
   pfQuestInit:SetMovable(true)
   pfQuestInit:EnableMouse(true)
   pfQuestInit:SetPoint("CENTER", 0, 0)
@@ -970,8 +998,20 @@ do -- welcome/init popup dialog
     if pfQuestInit[config_stage.mode] and pfQuestInit[config_stage.mode].bg then
       desaturate(pfQuestInit[config_stage.mode].bg, false)
     end
+    for j = 1, 3 do
+      if pfQuestInit[j] and pfQuestInit[j].ring then
+        if j == config_stage.mode then pfQuestInit[j].ring:Show()
+        else pfQuestInit[j].ring:Hide() end
+      end
+    end
     if pfQuestInit.checkbox then
       pfQuestInit.checkbox:SetChecked(config_stage.arrow)
+    end
+    if pfQuestInit.trackerbox then
+      pfQuestInit.trackerbox:SetChecked(config_stage.tracker)
+    end
+    if pfQuestInit.groupbox then
+      pfQuestInit.groupbox:SetChecked(config_stage.groupsync)
     end
     if pfQuestInit.querybox then
       pfQuestInit.querybox:SetChecked(config_stage.query)
@@ -1009,27 +1049,32 @@ do -- welcome/init popup dialog
   pfQuestInit.title:SetPoint("TOP", pfQuestInit, "TOP", 0, -8)
   pfQuestInit.title:SetJustifyH("CENTER")
   pfQuestInit.title:SetFont(pfUI.font_default, 12, "OUTLINE")
-  pfQuestInit.title:SetText(L["Please select your preferred |cff33ffccpf|cffffffffQuest|r mode:"])
+  pfQuestInit.title:SetText(L["Welcome to pfQuest!"])
+  pfQuestInit.subtitle = pfQuestInit:CreateFontString("pfQuestInitSubtitle", "OVERLAY", "GameFontWhite")
+  pfQuestInit.subtitle:SetPoint("TOP", pfQuestInit.title, "BOTTOM", 0, -12)
+  pfQuestInit.subtitle:SetJustifyH("CENTER")
+  pfQuestInit.subtitle:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+  pfQuestInit.subtitle:SetText(L["How should quest objectives appear on your map?"])
 
   -- questing mode
   local buttons = {
     {
-      caption = L["Simple Markers"],
+      caption = L["Icons Only"],
       texture = "\\img\\init\\simple",
-      position = { "TOPLEFT", 15, -38 },
-      tooltip = L["Only show cluster icons with summarized objective locations based on spawn points"],
+      position = { "TOPLEFT", 15, -80 },
+      tooltip = L["Compact icons summarizing each objective. Cleanest look for the map."],
     },
     {
-      caption = L["Combined"],
+      caption = L["Icons + Spawns"],
       texture = "\\img\\init\\combined",
-      position = { "TOP", 0, -38 },
-      tooltip = L["Show cluster icons with summarized locations and also display all spawn points of each quest objective"],
+      position = { "TOP", 0, -80 },
+      tooltip = L["Summary icons plus every spawn point. Best of both, busier map."],
     },
     {
-      caption = L["Spawn Points"],
+      caption = L["Spawns Only"],
       texture = "\\img\\init\\spawns",
-      position = { "TOPRIGHT", -15, -38 },
-      tooltip = L["Display all spawn points of each quest objective and hide summarized cluster icons."],
+      position = { "TOPRIGHT", -15, -80 },
+      tooltip = L["Every individual spawn point, no summary icons. Maximum detail."],
     },
   }
 
@@ -1037,29 +1082,60 @@ do -- welcome/init popup dialog
   for i, button in ipairs(buttons) do
     pfQuestInit[i] = CreateFrame("Button", buttonNames[i], pfQuestInit)
     pfQuestInit[i]:SetWidth(120)
-    pfQuestInit[i]:SetHeight(160)
+    pfQuestInit[i]:SetHeight(140)
     pfQuestInit[i]:SetPoint(unpack(button.position))
     pfQuestInit[i]:SetID(i)
 
+    -- Square map preview cropped to fill: source TGAs are opaque 256x256
+    -- squares, so inset the texture ~4px (avoids edge bleed) and hide the
+    -- skinned button backdrop -- otherwise the square image on a dark
+    -- backdrop reads as a "black box".
     pfQuestInit[i].bg = pfQuestInit[i]:CreateTexture(nil, "ARTWORK")
-    pfQuestInit[i].bg:SetWidth(120)
-    pfQuestInit[i].bg:SetHeight(150)
-    pfQuestInit[i].bg:SetPoint("CENTER", 0, 0)
+    pfQuestInit[i].bg:SetWidth(112)
+    pfQuestInit[i].bg:SetHeight(112)
+    pfQuestInit[i].bg:SetPoint("TOP", 0, -4)
     pfQuestInit[i].bg:SetTexture(pfQuestConfig.path .. button.texture)
+    pfQuestInit[i].bg:SetTexCoord(0.02, 0.98, 0.02, 0.98)
+
+    if pfQuestInit[i].backdrop then pfQuestInit[i].backdrop:Hide() end
+    local normal = pfQuestInit[i]:GetNormalTexture()
+    if normal then normal:SetTexture("") end
+    local pushed = pfQuestInit[i]:GetPushedTexture()
+    if pushed then pushed:SetTexture("") end
+    local highlight = pfQuestInit[i]:GetHighlightTexture()
+    if highlight then highlight:SetTexture("") end
 
     pfQuestInit[i].caption = pfQuestInit[i]:CreateFontString(nil, "OVERLAY", "GameFontWhite")
-    pfQuestInit[i].caption:SetPoint("TOP", pfQuestInit[i], "BOTTOM", 0, -6)
+    pfQuestInit[i].caption:SetPoint("TOP", pfQuestInit[i].bg, "BOTTOM", 0, -6)
     pfQuestInit[i].caption:SetJustifyH("CENTER")
     pfQuestInit[i].caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
     pfQuestInit[i].caption:SetText(button.caption)
 
     pfUI.api.SkinButton(pfQuestInit[i])
 
+    -- Selection ring: skinned backdrop hidden above, so draw a thin accent
+    -- frame around the preview and toggle it on the selected mode.
+    pfQuestInit[i].ring = CreateFrame("Frame", nil, pfQuestInit[i])
+    pfQuestInit[i].ring:SetPoint("TOPLEFT", pfQuestInit[i].bg, "TOPLEFT", -1, 1)
+    pfQuestInit[i].ring:SetPoint("BOTTOMRIGHT", pfQuestInit[i].bg, "BOTTOMRIGHT", 1, -1)
+    pfUI.api.CreateBackdrop(pfQuestInit[i].ring, nil, true, 0.9)
+    local ra = pfQuestTheme and pfQuestTheme.accent or { 0.2, 1, 0.8 }
+    if pfQuestInit[i].ring.backdrop and pfQuestInit[i].ring.backdrop.SetBackdropBorderColor then
+      pfQuestInit[i].ring.backdrop:SetBackdropBorderColor(ra[1], ra[2], ra[3], 1)
+    end
+    if i ~= config_stage.mode then pfQuestInit[i].ring:Hide() end
+
     pfQuestInit[i]:SetScript("OnClick", function()
       desaturate(pfQuestInit[1].bg, true)
       desaturate(pfQuestInit[2].bg, true)
       desaturate(pfQuestInit[3].bg, true)
       desaturate(pfQuestInit[this:GetID()].bg, false)
+      for j = 1, 3 do
+        if pfQuestInit[j].ring then
+          if j == this:GetID() then pfQuestInit[j].ring:Show()
+          else pfQuestInit[j].ring:Hide() end
+        end
+      end
       config_stage.mode = this:GetID()
     end)
 
@@ -1085,67 +1161,65 @@ do -- welcome/init popup dialog
     end)
   end
 
+  -- option checkboxes: one shared builder keeps styling identical
+  local function AddOptionBox(name, yOff, label, tooltipTitle, tooltipText, onClick)
+    local box = CreateFrame("CheckButton", name, pfQuestInit, "UICheckButtonTemplate")
+    box:SetPoint("BOTTOMLEFT", 15, yOff)
+    box:SetNormalTexture("")
+    box:SetPushedTexture("")
+    box:SetHighlightTexture("")
+    box:SetWidth(20)
+    box:SetHeight(20)
+    pfUI.api.CreateBackdrop(box, nil, true)
+
+    box.caption = box:CreateFontString(nil, "OVERLAY", "GameFontWhite")
+    box.caption:SetPoint("LEFT", box, "RIGHT", 5, 0)
+    box.caption:SetJustifyH("LEFT")
+    box.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+    box.caption:SetText(label)
+    box:SetScript("OnClick", onClick)
+
+    box:SetScript("OnEnter", function()
+      GameTooltip_SetDefaultAnchor(GameTooltip, this)
+      GameTooltip:SetText(tooltipTitle)
+      GameTooltip:AddLine(tooltipText, 1, 1, 1, true)
+      GameTooltip:SetWidth(200)
+      GameTooltip:Show()
+    end)
+
+    box:SetScript("OnLeave", function()
+      GameTooltip:Hide()
+    end)
+
+    return box
+  end
+
   -- show arrows
-  pfQuestInit.checkbox = CreateFrame("CheckButton", "pfQuestInitArrowBox", pfQuestInit, "UICheckButtonTemplate")
-  pfQuestInit.checkbox:SetPoint("BOTTOMLEFT", 15, 36)
-  pfQuestInit.checkbox:SetNormalTexture("")
-  pfQuestInit.checkbox:SetPushedTexture("")
-  pfQuestInit.checkbox:SetHighlightTexture("")
-  pfQuestInit.checkbox:SetWidth(20)
-  pfQuestInit.checkbox:SetHeight(20)
-  pfUI.api.CreateBackdrop(pfQuestInit.checkbox, nil, true)
+  pfQuestInit.checkbox = AddOptionBox("pfQuestInitArrowBox", 88,
+    L["Navigation arrow"],
+    L["Navigation Arrow"],
+    L["An arrow pointing to the nearest quest objective."],
+    function() config_stage.arrow = this:GetChecked() end)
 
-  pfQuestInit.checkbox.caption = pfQuestInit.checkbox:CreateFontString(nil, "OVERLAY", "GameFontWhite")
-  pfQuestInit.checkbox.caption:SetPoint("LEFT", pfQuestInit.checkbox, "RIGHT", 5, 0)
-  pfQuestInit.checkbox.caption:SetJustifyH("LEFT")
-  pfQuestInit.checkbox.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
-  pfQuestInit.checkbox.caption:SetText(L["Show Navigation Arrow"])
-  pfQuestInit.checkbox:SetScript("OnClick", function()
-    config_stage.arrow = this:GetChecked()
-  end)
+  pfQuestInit.trackerbox = AddOptionBox("pfQuestInitTrackerBox", 62,
+    L["Quest tracker"],
+    L["Quest Tracker"],
+    L["A movable list of your active quests and their progress."],
+    function() config_stage.tracker = this:GetChecked() end)
 
-  pfQuestInit.checkbox:SetScript("OnEnter", function()
-    GameTooltip_SetDefaultAnchor(GameTooltip, this)
-    GameTooltip:SetText(L["Navigation Arrow"])
-    GameTooltip:AddLine(L["Show navigation arrow that points you to the nearest quest location."], 1, 1, 1, true)
-    GameTooltip:SetWidth(160)
-    GameTooltip:Show()
-  end)
-
-  pfQuestInit.checkbox:SetScript("OnLeave", function()
-    GameTooltip:Hide()
-  end)
+  -- group sync checkbox
+  pfQuestInit.groupbox = AddOptionBox("pfQuestInitGroupBox", 36,
+    L["Party quest sharing"],
+    L["Party Quest Sharing"],
+    L["Show party members' quest progress on your map and tooltips."],
+    function() config_stage.groupsync = this:GetChecked() end)
 
   -- query completed quests checkbox
-  pfQuestInit.querybox = CreateFrame("CheckButton", "pfQuestInitQueryBox", pfQuestInit, "UICheckButtonTemplate")
-  pfQuestInit.querybox:SetPoint("BOTTOMLEFT", 15, 10)
-  pfQuestInit.querybox:SetNormalTexture("")
-  pfQuestInit.querybox:SetPushedTexture("")
-  pfQuestInit.querybox:SetHighlightTexture("")
-  pfQuestInit.querybox:SetWidth(20)
-  pfQuestInit.querybox:SetHeight(20)
-  pfUI.api.CreateBackdrop(pfQuestInit.querybox, nil, true)
-
-  pfQuestInit.querybox.caption = pfQuestInit.querybox:CreateFontString(nil, "OVERLAY", "GameFontWhite")
-  pfQuestInit.querybox.caption:SetPoint("LEFT", pfQuestInit.querybox, "RIGHT", 5, 0)
-  pfQuestInit.querybox.caption:SetJustifyH("LEFT")
-  pfQuestInit.querybox.caption:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
-  pfQuestInit.querybox.caption:SetText(L["Query Server for Completed Quests (/db query)"])
-  pfQuestInit.querybox:SetScript("OnClick", function()
-    config_stage.query = this:GetChecked()
-  end)
-
-  pfQuestInit.querybox:SetScript("OnEnter", function()
-    GameTooltip_SetDefaultAnchor(GameTooltip, this)
-    GameTooltip:SetText(L["Query Completed Quests"])
-    GameTooltip:AddLine(L["Queries the server for quests your character has already completed (/db query). Highly recommended so finished quests are hidden from your map."], 1, 1, 1, true)
-    GameTooltip:SetWidth(260)
-    GameTooltip:Show()
-  end)
-
-  pfQuestInit.querybox:SetScript("OnLeave", function()
-    GameTooltip:Hide()
-  end)
+  pfQuestInit.querybox = AddOptionBox("pfQuestInitQueryBox", 10,
+    L["Hide my completed quests"],
+    L["Hide Completed Quests"],
+    L["Ask the server which quests you already finished (/db query) so they stay hidden. Recommended."],
+    function() config_stage.query = this:GetChecked() end)
 
   -- save button
   pfQuestInit.save = CreateFrame("Button", "pfQuestInitSave", pfQuestInit)
@@ -1182,6 +1256,18 @@ do -- welcome/init popup dialog
       pfQuest_config["arrow"] = "1"
     else
       pfQuest_config["arrow"] = "0"
+    end
+
+    if config_stage.tracker then
+      pfQuest_config["showtracker"] = "1"
+    else
+      pfQuest_config["showtracker"] = "0"
+    end
+
+    if config_stage.groupsync then
+      pfQuest_config["epochgroupsync"] = "1"
+    else
+      pfQuest_config["epochgroupsync"] = "0"
     end
 
     -- save welcome flag

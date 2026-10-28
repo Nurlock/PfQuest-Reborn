@@ -20,7 +20,6 @@ end
 env.pfQuestConfig = env.CreateFrame("Frame", "pfQuestConfig")
 env.pfQuestConfig.path = "Interface\\AddOns\\pfQuest"
 env.pfQuest_config = {
-  ["experimental"] = "1",
   ["epochgroupsync"] = "1",
   ["showpartytooltips"] = "1",
   ["epochShowPartyProgress"] = "1",

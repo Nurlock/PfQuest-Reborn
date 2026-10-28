@@ -28,7 +28,6 @@ end
 
 local function IsSyncEnabled()
     if pfQuest_config then
-        if pfQuest_config["experimental"] == "0" then return false end
         if pfQuest_config["epochgroupsync"] == "0" then return false end
     end
     return true

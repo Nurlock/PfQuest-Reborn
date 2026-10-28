@@ -168,8 +168,13 @@ function M.create_env()
     function f:SetVerticalScroll(v) self._vscroll = v end
     function f:GetVerticalScroll() return self._vscroll or 0 end
     function f:SetNormalTexture() end
+    function f:GetNormalTexture() return nil end
+    function f:GetPushedTexture() return nil end
+    function f:GetHighlightTexture() return nil end
     function f:SetPushedTexture() end
     function f:SetHighlightTexture() end
+    function f:SetTexCoord() end
+    function f:SetDesaturated() end
     function f:SetAlpha(a) self._alpha = a end
     function f:GetAlpha() return self._alpha or 1 end
 

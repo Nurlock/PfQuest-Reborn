@@ -16,7 +16,7 @@ the experience layer.
   bidirectional communication with Questie players in party/raid over `"questie"`
   and `"QuestieV1"`, enabling shared quest objective tracking on map/minimap
   and real-time group progress in monster/item tooltips. Configurable under
-  the new **Experimental Features** tab in settings (`/db`).
+  the **Group Sync & Chat** tab in settings (`/db`).
 
 ## Tracker
 - Per-quest **progress bar** under every quest title, colored by the same
