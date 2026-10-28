@@ -2241,12 +2241,15 @@ function pfDatabase:SearchQuestID(id, meta, maps)
     end
   end
 
-  -- prepare unified quest location markers
+  -- prepare unified quest location markers (cache key is title+questid,
+  -- matching the AddNode storage key for this quest)
   local addon = meta["addon"] or "PFDB"
+  local cacheKey = meta.quest and meta.questid
+    and (meta.quest .. "\1" .. tostring(meta.questid)) or meta.quest
   if pfMap.nodes[addon] then
     for map in pairs(pfMap.nodes[addon]) do
-      if meta.quest and pfMap.unifiedcache[meta.quest] and pfMap.unifiedcache[meta.quest][map] then
-        for hash, data in pairs(pfMap.unifiedcache[meta.quest][map]) do
+      if meta.quest and pfMap.unifiedcache[cacheKey] and pfMap.unifiedcache[cacheKey][map] then
+        for hash, data in pairs(pfMap.unifiedcache[cacheKey][map]) do
           meta = data.meta
           meta["title"] = meta["title"] or meta["quest"]
           meta["cluster"] = true

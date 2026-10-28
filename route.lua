@@ -218,9 +218,15 @@ end
 -- without relying on math.huge on older clients.
 local DIST_FAR = 99999999
 
-local function sortfunc(a, b)
+-- Hoisted comparator inputs: table.sort calls the comparator O(n log n) times
+-- per resort, so reading pfQuest_config + GetQuestSortMode() on every
+-- comparison meant dozens of redundant global lookups per tick. The thin
+-- sortfunc wrapper reads the hoisted sortCache instead; refresh once per sort.
+local sortCache = { mode5 = false, sortMode = nil }
+local function sortfuncCached(a, b, mode5, sortMode)
   -- For the same quest, gathering/source objectives must always be prioritized
   -- before using the item at an itemreq target node.
+  -- Route tuples are { x, y, node, distance, watched, questid }
   if a[6] and b[6] and a[6] == b[6] then
     local a_req = (a[3] and a[3].itemreq) and 1 or 0
     local b_req = (b[3] and b[3].itemreq) and 1 or 0
@@ -229,8 +235,7 @@ local function sortfunc(a, b)
     end
   end
 
-  if pfQuest_config["trackingmethod"] == 5 then
-    -- Route tuples are { x, y, node, distance, watched, questid }
+  if mode5 then
     -- Watched quests stay ahead of all local non-watched candidates in mode 5.
     if (a[5] and 1 or -1) ~= (b[5] and 1 or -1) then
       return (a[5] and 1 or -1) > (b[5] and 1 or -1)
@@ -239,7 +244,7 @@ local function sortfunc(a, b)
     local alevel = (a[3] and tonumber(a[3].qlvl)) or -1
     local blevel = (b[3] and tonumber(b[3].qlvl)) or -1
 
-    if GetQuestSortMode() == "distance" then
+    if sortMode == "distance" then
       -- "Nearest" mode still keeps watched quests first; after that, prefer the
       -- closest current-map objective and only use quest level as a tie-breaker.
       if (a[4] or DIST_FAR) ~= (b[4] or DIST_FAR) then
@@ -268,6 +273,11 @@ local function sortfunc(a, b)
     end
   end
   return a[4] < b[4]
+end
+
+local function sortfunc(a, b)
+  return sortfuncCached(a, b, sortCache.mode5, sortCache.sortMode)
+end
 end
 pfQuest.route:SetScript("OnUpdate", function()
   local xplayer, yplayer = GetPlayerMapPosition("player")
@@ -300,6 +310,8 @@ pfQuest.route:SetScript("OnUpdate", function()
   end
   -- sort all coords by distance only once per second
   if not this.recalculate or this.recalculate < GetTime() then
+    sortCache.mode5 = pfQuest_config["trackingmethod"] == 5
+    sortCache.sortMode = GetQuestSortMode and GetQuestSortMode() or "distance"
     table.sort(this.coords, sortfunc)
 
     -- order list on custom targets

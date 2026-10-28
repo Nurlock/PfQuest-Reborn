@@ -887,8 +887,10 @@ function tracker.ButtonAdd(title, node)
 
   local id
 
-  -- O(1) duplicate check via reverse map (replaces linear scan of tracker.buttons)
-  local existing = tracker.buttonByTitle[title]
+  -- O(1) duplicate check via reverse map (replaces linear scan of tracker.buttons).
+  -- Keyed by title+questid so same-name distinct quests get their own button.
+  local buttonKey = questid ~= title and (title .. "\1" .. tostring(questid)) or title
+  local existing = tracker.buttonByTitle[buttonKey]
   if existing then
     local button = tracker.buttons[existing]
     if node.dummy or not node.texture then
@@ -965,7 +967,7 @@ function tracker.ButtonAdd(title, node)
   tracker.buttons[id].questid = questid
 
   -- keep reverse map in sync
-  tracker.buttonByTitle[title] = id
+  tracker.buttonByTitle[buttonKey] = id
 
   -- reload button data
   tracker.ButtonEvent(tracker.buttons[id])

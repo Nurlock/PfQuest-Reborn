@@ -101,7 +101,9 @@ env.SetMockQuestLog({
 env.pfDatabase:SearchQuestID(questId, qMeta)
 
 -- Second Mob node should NOT have itemreq set
-local mobNode = env.pfMap.nodes["PFQUEST"][1]["20|20"]["Itemreq Test Quest"]
+-- (quest-context nodes are id-scoped: title + questid)
+local mobKey = env.pfMap.NodeStoreKey("Itemreq Test Quest", { questid = questId })
+local mobNode = env.pfMap.nodes["PFQUEST"][1]["20|20"][mobKey]
 assert(mobNode, "Second Mob node should exist")
 assert(not mobNode.itemreq, "Ordinary kill mob MUST NOT inherit meta.itemreq from earlier item requirement!")
 assert(qMeta.itemreq == nil, "Caller's qMeta.itemreq must be nil upon SearchQuestID completion!")

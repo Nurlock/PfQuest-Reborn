@@ -34,9 +34,26 @@ versioncheck:SetScript("OnEvent", function()
     local v, remoteversion = strsplit(":", arg2)
     local remoteversion = tonumber(remoteversion)
     if v == "VERSION" and remoteversion then
-      remote = remote and max(remote, remoteversion) or remoteversion
-      if version and remote > version then
-        pfQuest_config.latest = remote
+      -- Only trust group members: anyone on the addon channel could
+      -- otherwise pin latest=999999 and trigger a bogus update notice.
+      -- (arg4 is the sender; nil in unit tests counts as trusted.)
+      local sender = arg4
+      local trusted = (sender == nil)
+      if not trusted and sender then
+        local me = UnitName("player")
+        if sender == me then
+          trusted = true
+        elseif GetNumRaidMembers and GetNumRaidMembers() > 0 and UnitInRaid then
+          trusted = UnitInRaid(sender) ~= nil
+        elseif GetNumPartyMembers and GetNumPartyMembers() > 0 and UnitInParty then
+          trusted = UnitInParty(sender)
+        end
+      end
+      if trusted then
+        remote = remote and max(remote, remoteversion) or remoteversion
+        if version and remote > version then
+          pfQuest_config.latest = remote
+        end
       end
     end
     return

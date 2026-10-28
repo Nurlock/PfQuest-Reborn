@@ -853,6 +853,25 @@ function pfMap:GetMapID(cid, mid)
   return pfMap:ParentZone(id)
 end
 
+-- Match every storage key owned by a title: the bare title itself plus all
+-- id-scoped "title\1id" keys. Lets a title-only DeleteNode clear every
+-- same-name quest (today's behavior), while AddNode keeps them separate.
+-- (Local, defined before AddNode/DeleteNode use it.)
+local function TitleKeyMatches(key, title)
+  return key == title or string.sub(key, 1, string.len(title) + 1) == title .. "\1"
+end
+
+-- Storage slot for a node: id-scoped when the caller carries a questid
+-- (quest context: SearchQuestID/SearchQuests always set meta.questid), bare
+-- otherwise (DB browser queries and other quest-less lookups share slots by
+-- name, as before). Callers holding only a title clear every id under it.
+local function NodeStoreKey(title, meta)
+  local questid = meta and meta["questid"] or nil
+  if questid then return title .. "\1" .. tostring(questid) end
+  return title
+end
+pfMap.NodeStoreKey = NodeStoreKey
+
 function pfMap:AddNode(meta)
   if not meta then
     return
@@ -874,6 +893,8 @@ function pfMap:AddNode(meta)
   local map = meta["zone"]
   local coords = meta["x"] .. "|" .. meta["y"]
   local title = meta["title"]
+  local questid = meta["questid"]
+  local storeKey = NodeStoreKey(title, meta)
   local layer = GetLayerByTexture(meta["texture"])
   local spawn = meta["spawn"]
   local item = meta["item"]
@@ -905,25 +926,25 @@ function pfMap:AddNode(meta)
   end
 
   -- skip early on existing nodes
-  if pfMap.nodes[addon][map][coords][title] then
-    if item and table.getn(pfMap.nodes[addon][map][coords][title].item) > 0 then
+  if pfMap.nodes[addon][map][coords][storeKey] then
+    if item and table.getn(pfMap.nodes[addon][map][coords][storeKey].item) > 0 then
       -- check if item already exists
-      for id, name in pairs(pfMap.nodes[addon][map][coords][title].item) do
+      for id, name in pairs(pfMap.nodes[addon][map][coords][storeKey].item) do
         if name == item then
           return
         end
       end
 
       -- add new item and exit
-      table.insert(pfMap.nodes[addon][map][coords][title].item, item)
+      table.insert(pfMap.nodes[addon][map][coords][storeKey].item, item)
       return
     end
 
     if
-      pfMap.nodes[addon][map][coords][title]
-      and pfMap.nodes[addon][map][coords][title].layer
+      pfMap.nodes[addon][map][coords][storeKey]
+      and pfMap.nodes[addon][map][coords][storeKey].layer
       and layer
-      and pfMap.nodes[addon][map][coords][title].layer >= layer
+      and pfMap.nodes[addon][map][coords][storeKey].layer >= layer
     then
       -- identical node already exists, exit here
       return
@@ -940,7 +961,7 @@ function pfMap:AddNode(meta)
   end
 
   -- set current node to combined node
-  pfMap.nodes[addon][map][coords][title] = similar_nodes[sindex]
+  pfMap.nodes[addon][map][coords][storeKey] = similar_nodes[sindex]
 
   -- mark this coord's node table dirty so UpdateNodes knows to reprocess it
   pfMap.dirtyNodes[pfMap.nodes[addon][map][coords]] = true
@@ -958,16 +979,18 @@ function pfMap:AddNode(meta)
   end
   pfMap.titleIndex[addon][title][map][coords] = true
 
-  -- add node to unified cluster cache
+  -- add node to unified cluster cache, keyed by title+questid so same-name
+  -- quests keep separate cluster coordinates
   if not meta["cluster"] and not meta["texture"] then
     local node_index = meta.item or meta.spawn or UNKNOWN
     local x, y = tonumber(meta.x), tonumber(meta.y)
+    local cacheKey = storeKey
 
     -- create prerequisite table structure
-    unifiedcache[title] = unifiedcache[title] or {}
-    unifiedcache[title][map] = unifiedcache[title][map] or {}
+    unifiedcache[cacheKey] = unifiedcache[cacheKey] or {}
+    unifiedcache[cacheKey][map] = unifiedcache[cacheKey][map] or {}
 
-    if not unifiedcache[title][map][node_index] then
+    if not unifiedcache[cacheKey][map][node_index] then
       -- create new unified node from given meta data
       local unified_meta = {}
       for key, val in pairs(meta) do
@@ -975,11 +998,11 @@ function pfMap:AddNode(meta)
       end
 
       -- save node to unified cache
-      unifiedcache[title][map][node_index] = { meta = unified_meta, coords = {} }
+      unifiedcache[cacheKey][map][node_index] = { meta = unified_meta, coords = {} }
     end
 
     -- append new coords to unified cache unified cache
-    table.insert(unifiedcache[title][map][node_index].coords, { x, y })
+    table.insert(unifiedcache[cacheKey][map][node_index].coords, { x, y })
   end
 
   -- add to gametooltips
@@ -1007,6 +1030,12 @@ function pfMap:GetNodes(addon, title)
         if pfMap.nodes[addon][map][coords][title] then
           table.insert(nodes, pfMap.nodes[addon][map][coords][title])
         end
+        -- id-scoped keys share the title prefix "title\1id"
+        for key, n in pairs(node) do
+          if string.sub(key, 1, string.len(title) + 1) == title .. "\1" then
+            table.insert(nodes, n)
+          end
+        end
       end
     end
   end
@@ -1023,6 +1052,8 @@ function pfMap:DeleteNode(addon, title)
     pfMap.tooltipIndex = {}
     pfMap.dirtyNodes = {}
     pfMap.dirtyMaps = {}
+    pfMap.unifiedcache = {}
+    for k in pairs(similar_nodes) do similar_nodes[k] = nil end
   elseif not title then
     -- wipe all nodes for this addon; clean up both reverse indexes
     if pfMap.titleIndex[addon] then
@@ -1045,13 +1076,20 @@ function pfMap:DeleteNode(addon, title)
     end
     pfMap.nodes[addon] = nil
   elseif pfMap.titleIndex[addon] and pfMap.titleIndex[addon][title] then
-    -- fast path: use reverse index to find exactly which (map, coords) to clear
+    -- fast path: use reverse index to find exactly which (map, coords) to clear.
+    -- A title may own several id-scoped storage keys; clear them all.
+    local clearedMaps = {}
     for map, coords_set in pairs(pfMap.titleIndex[addon][title]) do
+      clearedMaps[map] = true
       pfMap.dirtyMaps[map] = true
       if pfMap.nodes[addon] and pfMap.nodes[addon][map] then
         for coords in pairs(coords_set) do
           if pfMap.nodes[addon][map][coords] then
-            pfMap.nodes[addon][map][coords][title] = nil
+            for key in pairs(pfMap.nodes[addon][map][coords]) do
+              if TitleKeyMatches(key, title) then
+                pfMap.nodes[addon][map][coords][key] = nil
+              end
+            end
             if IsEmpty(pfMap.nodes[addon][map][coords]) then
               pfMap.nodes[addon][map][coords] = nil
             else
@@ -1078,21 +1116,28 @@ function pfMap:DeleteNode(addon, title)
       pfMap.tooltipIndex[title] = nil
     end
 
-    if pfMap.unifiedcache and pfMap.unifiedcache[title] then
-      pfMap.unifiedcache[title] = nil
+    -- unifiedcache is keyed by title+questid: drop every key under this title
+    if pfMap.unifiedcache then
+      for key in pairs(pfMap.unifiedcache) do
+        if TitleKeyMatches(key, title) then
+          pfMap.unifiedcache[key] = nil
+        end
+      end
     end
   elseif pfMap.nodes[addon] then
     -- fallback: linear scan over pfMap.nodes[addon] if reverse index had a miss
     for map, coords_tbl in pairs(pfMap.nodes[addon]) do
       for coords, titles in pairs(coords_tbl) do
-        if titles[title] then
-          titles[title] = nil
-          pfMap.dirtyMaps[map] = true
-          if IsEmpty(titles) then
-            coords_tbl[coords] = nil
-          else
-            pfMap.dirtyNodes[titles] = true
+        for key in pairs(titles) do
+          if TitleKeyMatches(key, title) then
+            titles[key] = nil
+            pfMap.dirtyMaps[map] = true
           end
+        end
+        if IsEmpty(titles) then
+          coords_tbl[coords] = nil
+        else
+          pfMap.dirtyNodes[titles] = true
         end
       end
     end
@@ -1110,8 +1155,12 @@ function pfMap:DeleteNode(addon, title)
       pfMap.tooltipIndex[title] = nil
     end
 
-    if pfMap.unifiedcache and pfMap.unifiedcache[title] then
-      pfMap.unifiedcache[title] = nil
+    if pfMap.unifiedcache then
+      for key in pairs(pfMap.unifiedcache) do
+        if TitleKeyMatches(key, title) then
+          pfMap.unifiedcache[key] = nil
+        end
+      end
     end
   end
 
