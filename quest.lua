@@ -531,14 +531,6 @@ function pfQuest:HasQuest(id)
   return self.questlog[id] or self.questlog[tonumber(id) or nil] or self.questlog[tostring(id)]
 end
 
--- Single writer for the legacy partyQuest mirror (owned here).
-function pfQuest:ClearPartyQuest(player, id)
-  if self.partyQuests and self.partyQuests[player] then
-    if id then self.partyQuests[player][id] = nil
-    else self.partyQuests[player] = nil end
-  end
-end
-
 -- Id lookup for a log row (numeric log position + title fallback).
 function pfQuest:GetIdByLog(qlogid, title)
   for id, q in pairs(self.questlog or {}) do
