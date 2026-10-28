@@ -413,6 +413,29 @@ function pfQuestConfig:LoadConfig()
   end
 end
 
+-- Single writers for config keys so dispatchers never touch the SavedVar.
+function pfQuestConfig:Toggle(key)
+  pfQuest_config[key] = not pfQuest_config[key]
+end
+
+function pfQuestConfig:Set(key, val)
+  pfQuest_config[key] = val
+end
+
+function pfQuestConfig:SetLatest(v)
+  pfQuest_config.latest = v
+end
+
+function pfQuestConfig:EnsurePath()
+  if not self.path then self.path = "Interface\\AddOns\\pfQuest-Reborn" end
+end
+
+-- Links collapse state so it survives reloads (same table, no copy).
+function pfQuestConfig:LinkCollapsedIDs(store)
+  self.collapsedQuestIDs = self.collapsedQuestIDs or {}
+  store.collapsedQuestIDs = self.collapsedQuestIDs
+end
+
 function pfQuestConfig:MigrateHistory()
   if not pfQuest_history then
     return

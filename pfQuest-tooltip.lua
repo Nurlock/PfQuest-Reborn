@@ -7,11 +7,7 @@ local function GetDBLoc(category)
     return pfDB and pfDB[category] and (pfDB[category]["loc"] or pfDB[category]["enUS"])
 end
 
-local function InitializeConfig()
-    if not pfQuest_config then
-        pfQuest_config = {}
-    end
-end
+-- pfQuest_config defaults come from config.lua; nothing to init here.
 
 local function IsInGroup()
     return (GetNumRaidMembers and GetNumRaidMembers() > 0) or (GetNumPartyMembers and GetNumPartyMembers() > 0)
@@ -91,7 +87,7 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
         end
     end
 
-    if pfQuest and pfQuest.questlog and (pfQuest.questlog[questId] or (qId and pfQuest.questlog[qId]) or pfQuest.questlog[qTitle]) then
+    if pfQuest and (pfQuest:HasQuest(questId) or pfQuest:HasQuest(qId) or pfQuest:HasQuest(qTitle)) then
         DeletePartyQuestNodes(questId or qTitle, playerName)
         return
     end
@@ -111,7 +107,7 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
             color = playerName,
         }
         pfDatabase:SearchQuestID(qId, meta)
-        pfMap.queue_update = GetTime()
+        pfMap:RequestUpdate()
     end
 end
 
@@ -145,9 +141,7 @@ local function CleanupPartyData()
     for playerName in pairs(partyQuestData) do
         if not validPlayers[playerName] then
             partyQuestData[playerName] = nil
-            if pfQuest and pfQuest.partyQuests then
-                pfQuest.partyQuests[playerName] = nil
-            end
+            if pfQuest and pfQuest.ClearPartyQuest then pfQuest:ClearPartyQuest(playerName) end
             DeletePartyQuestNodes(nil, playerName)
         end
     end
@@ -543,7 +537,6 @@ local function BroadcastQuestRemove(questId, questTitle)
     local channel = GetGroupDistribution() or "PARTY"
     SendAddonMessage("pfqe", string.format("REMOVEQ:%d:%s", qid, title), channel)
 end
-
 local function ShareQuestData(forceFullSync)
     if not IsInGroup() or not IsSyncEnabled() then
         return
@@ -893,11 +886,9 @@ local function ProcessQuestData(sender, message)
             end
         end
 
-        if pfQuest and pfQuest.partyQuests and pfQuest.partyQuests[sender] then
+        if pfQuest and pfQuest.ClearPartyQuest then
             local nId = tonumber(removeQuestId)
-            if nId then
-                pfQuest.partyQuests[sender][nId] = nil
-            end
+            if nId then pfQuest:ClearPartyQuest(sender, nId) end
         end
         DeletePartyQuestNodes(removeQuestId or removeQuestTitle, sender)
 
@@ -1233,9 +1224,9 @@ local function HookPfQuestTooltip()
         return false
     end
 
-    local orig_ShowTooltip = pfMap.ShowTooltip
+    -- Wrap through map's sanctioned seam instead of overwriting its method.
+    pfMap:SetTooltipHook(function(orig, self, meta, tooltip)
 
-    pfMap.ShowTooltip = function(self, meta, tooltip)
         tooltip = tooltip or GameTooltip
 
         local targetKey = meta.spawn or meta.title
@@ -1289,7 +1280,7 @@ local function HookPfQuestTooltip()
         end
 
         if hasPartyData and matchedKey then
-            orig_ShowTooltip(self, meta, tooltip)
+            orig(self, meta, tooltip)
 
             if not select(2, tooltip:GetUnit()) then
                 AppendPartyLines(tooltip, BuildQuestGroups(matchedKey))
@@ -1297,9 +1288,9 @@ local function HookPfQuestTooltip()
 
             tooltip:Show()
         else
-            orig_ShowTooltip(self, meta, tooltip)
+            orig(self, meta, tooltip)
         end
-    end
+    end)
 
     return true
 end
@@ -1489,7 +1480,7 @@ local configExtenderFrame = CreateFrame("Frame")
 configExtenderFrame:RegisterEvent("ADDON_LOADED")
 configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
     if addonName == "pfQuest-epoch" or addonName == "pfQuest-Reborn" then
-        InitializeConfig()
+        -- (config defaults already applied by config.lua)
 
         HookGameTooltip()
 

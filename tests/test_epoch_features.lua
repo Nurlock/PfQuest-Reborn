@@ -139,6 +139,7 @@ env.pfMap = {
   AddNode = function(self, node) table.insert(addedNodes, node) end,
   unifiedcache = {},
   GetClusterData = function(self, addon, cacheKey) return {} end,
+  ClearUnifiedCache = function(self, key) self.unifiedcache[key] = {} end,
 }
 
 env.pfQuest_config["currentquestgivers"] = "1"

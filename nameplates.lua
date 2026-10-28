@@ -54,13 +54,8 @@ local function ScanQuestObjectives()
         local link = GetQuestLink(qid)
         questId = link and tonumber(string.match(link, "quest:(%d+)"))
       end
-      if not questId and pfQuest and pfQuest.questlog then
-        for qId, qData in pairs(pfQuest.questlog) do
-          if type(qId) == "number" and (qData.qlogid == qid or qData.title == questTitle) then
-            questId = qId
-            break
-          end
-        end
+      if not questId and pfQuest and pfQuest.GetIdByLog then
+        questId = pfQuest:GetIdByLog(qid, questTitle)
       end
       if not questId and questLoc then
         for qId, qData in pairs(questLoc) do

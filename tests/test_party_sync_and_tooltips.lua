@@ -384,4 +384,30 @@ local afterDebounce = #sentAddonMessages
 assert(afterDebounce >= 0, "debounced flush must run without error")
 print("  ✓ PASS: QUEST_LOG_UPDATE debounced")
 
+print("[TEST] 18. Verifying DeleteNodesWhere cleans every index...")
+local pfMap = env.pfMap
+assert(pfMap.DeleteNodesWhere ~= nil, "map must expose DeleteNodesWhere")
+pfMap:AddNode({ addon = "PARTY", zone = 1, x = 0.5, y = 0.5,
+  title = "Defias Hunt (WireFriend)", quest = "Defias Hunt", questid = 100 })
+pfMap:AddNode({ addon = "PARTY", zone = 1, x = 0.6, y = 0.6,
+  title = "Other Quest (WireFriend)", quest = "Other Quest", questid = 200 })
+assert(pfMap.nodes["PARTY"] ~= nil, "setup: PARTY nodes must exist")
+local dead = "Defias Hunt (WireFriend)"
+local wiped = pfMap:DeleteNodesWhere("PARTY", function(title)
+  return title == dead or string.sub(title, 1, string.len(dead) + 1) == dead .. "\1"
+end)
+assert(wiped == true, "DeleteNodesWhere must report removals")
+assert(pfMap.titleIndex["PARTY"] == nil or pfMap.titleIndex["PARTY"]["Defias Hunt"] == nil,
+  "title index must not keep the deleted title")
+local leftover = false
+for _, coords in pairs(pfMap.nodes["PARTY"][1] or {}) do
+  for title in pairs(coords) do
+    if title == dead or string.sub(title, 1, string.len(dead) + 1) == dead .. "\1" then leftover = true end
+  end
+end
+assert(leftover == false, "nodes store must not keep the deleted title")
+assert(pfMap:DeleteNodesWhere("PARTY", function() return false end) == false,
+  "DeleteNodesWhere must report no-ops")
+print("  ✓ PASS: DeleteNodesWhere removes title + indexes")
+
 print("\ntest_party_sync_and_tooltips PASSED successfully!")

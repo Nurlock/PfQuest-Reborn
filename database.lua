@@ -15,14 +15,8 @@ local GetTime = GetTime
 local UnitLevel, UnitRace, UnitClass = UnitLevel, UnitRace, UnitClass
 local UnitFactionGroup, UnitName, UnitSex = UnitFactionGroup, UnitName, UnitSex
 
--- Ensure pfQuestConfig.path exists (fallback if config.lua failed to set it)
-if not pfQuestConfig then
-  pfQuestConfig = CreateFrame("Frame", "pfQuestConfig", UIParent)
-  pfQuestConfig:Hide()
-end
-if not pfQuestConfig.path then
-  pfQuestConfig.path = "Interface\\AddOns\\pfQuest-Reborn"
-end
+-- Config owns pfQuestConfig init (config.lua); just ensure the path lazily.
+if pfQuestConfig and pfQuestConfig.EnsurePath then pfQuestConfig:EnsurePath() end
 
 pfDB = pfDB or {
   ["areatrigger"] = {},
@@ -636,6 +630,15 @@ pfDatabase.Reload()
 -- Inverted quest title index: maps title → {id, id, ...} for instant O(1) questlog lookups.
 pfDatabase.nameIndex = {}
 pfDatabase.lastQuestGiversSet = {}
+
+-- Single writers for the giver-diff set (quest.lua invalidates through these).
+function pfDatabase:InvalidateGiver(id)
+  self.lastQuestGiversSet[id] = nil
+end
+
+function pfDatabase:ClearGiverSet()
+  for id in pairs(self.lastQuestGiversSet) do self.lastQuestGiversSet[id] = nil end
+end
 
 -- Pre-computed set of quest IDs that will never pass QuestFilter for this character.
 pfDatabase.staticRejectSet = {}
@@ -1865,7 +1868,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
 
   -- clear previous unified quest nodes
   if meta.quest then
-    pfMap.unifiedcache[meta.quest] = {}
+    pfMap:ClearUnifiedCache(meta.quest)
   end
 
   if pfQuest_config["currentquestgivers"] == "1" then
@@ -3018,10 +3021,7 @@ local function OnQuestQueryComplete(self)
       pfQuest_history[hkey] = { time(), UnitLevel("player") }
     end
 
-    -- Mark journal dirty when history changes
-    if pfJournal then
-      pfJournal.dirty = true
-    end
+    if pfJournal and pfJournal.MarkDirty then pfJournal:MarkDirty() end
 
     -- Auto-close mutually exclusive quests
     local closed = 0
