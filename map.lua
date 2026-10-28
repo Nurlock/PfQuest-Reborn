@@ -857,9 +857,26 @@ end
 -- id-scoped "title\1id" keys. Lets a title-only DeleteNode clear every
 -- same-name quest (today's behavior), while AddNode keeps them separate.
 -- (Local, defined before AddNode/DeleteNode use it.)
+-- Match every storage key owned by a title: the bare title itself plus all
+-- id-scoped "title\1id" keys. Lets a title-only DeleteNode clear every
+-- same-name quest (today's behavior), while AddNode keeps them separate.
+-- (Local, defined before AddNode/DeleteNode use it.)
 local function TitleKeyMatches(key, title)
   return key == title or string.sub(key, 1, string.len(title) + 1) == title .. "\1"
 end
+
+-- Raw storage keys are id-scoped ("title\1id"); callers iterating
+-- node tables must display the bare quest title, not the key.
+-- shortcut: suffix is a decimal questid by construction (NodeStoreKey).
+local function DisplayTitle(key, node)
+  if node and node.title then return node.title end
+  if node and node.quest and type(key) == "string" then
+    local s = strfind(key, "\1", 1, true)
+    if s then return strsub(key, 1, s - 1) end
+  end
+  return key
+end
+pfMap.DisplayTitle = DisplayTitle
 
 -- Storage slot for a node: id-scoped when the caller carries a questid
 -- (quest context: SearchQuestID/SearchQuests always set meta.questid), bare
@@ -1320,12 +1337,12 @@ function pfMap:NodeEnter()
     end
   end
 
-  for title, meta in pairs(this.node) do
+  for _, meta in pairs(this.node) do
     pfMap:ShowTooltip(meta, tooltip)
   end
 
   local itemStartMeta = nil
-  for title, meta in pairs(this.node) do
+  for _, meta in pairs(this.node) do
     if meta.QTYPE == "ITEM_START" and meta.dropsources_levels then
       itemStartMeta = meta
       break
@@ -1458,8 +1475,8 @@ function pfMap:UpdateNode(frame, node, color, obj, distance)
   -- reset layer
   frame.layer = 0
 
-  for title, tab in pairs(node) do
-    pfMap.highlightdb[frame][title] = true
+  for storeKey, tab in pairs(node) do
+    pfMap.highlightdb[frame][storeKey] = true
 
     tab.layer = GetLayerByTexture(tab.texture)
 
@@ -1487,7 +1504,7 @@ function pfMap:UpdateNode(frame, node, color, obj, distance)
       frame.questid = tab.questid
       frame.texture = tab.texture
       frame.vertex = tab.vertex
-      frame.title = title
+      frame.title = pfMap.DisplayTitle(storeKey, tab)
       frame.func = tab.func
       frame.cluster = tab.cluster
       frame.description = tab.description
@@ -1727,9 +1744,9 @@ function pfMap:UpdateNodes()
         elseif pfQuest_config["showspawn"] == "0" and addon == "PFQUEST" and not pfMap.pins[i].texture then
           pfMap.pins[i]:Hide()
         else
-          -- populate quest list on map
-          for title, node in pairs(pfMap.pins[i].node) do
-            pfQuest.tracker.ButtonAdd(title, node)
+          -- populate quest list on map (display title, not storage key)
+          for storeKey, node in pairs(pfMap.pins[i].node) do
+            pfQuest.tracker.ButtonAdd(pfMap.DisplayTitle(storeKey, node), node)
           end
 
           local px = x / 100 * mapW

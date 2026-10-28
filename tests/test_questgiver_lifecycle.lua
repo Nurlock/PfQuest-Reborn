@@ -109,3 +109,14 @@ assert(not env.pfMap.nodes["PFQUEST"][1][willemCoords], "Deputy Willem starter n
 print("  ✓ PASS: Active quest nodes preserved, completed starter not resurrected")
 
 print("[TEST] test_questgiver_lifecycle PASSED successfully!")
+
+-- 6. DisplayTitle: id-scoped storage keys must display the bare title
+print("[TEST] Verifying DisplayTitle strips id-suffix...")
+assert(env.pfMap.DisplayTitle, "pfMap.DisplayTitle must exist")
+local scopedNode = { title = "Tomes of Interest", quest = "Tomes of Interest", questid = 26876 }
+assert(env.pfMap.DisplayTitle("Tomes of Interest\00126876", scopedNode) == "Tomes of Interest",
+  "id-scoped key must display as bare title")
+assert(env.pfMap.DisplayTitle("A Threat Within", { title = "A Threat Within" }) == "A Threat Within",
+  "bare keys must pass through unchanged")
+print("  ✓ PASS: DisplayTitle strips id-suffix")
+print("[TEST] test_displaytitle PASSED successfully!")
