@@ -205,18 +205,19 @@ end
 assert(syncReplied, "PFQUEST_SYNC_REQUEST from party member must trigger full quest list broadcast on pfqe")
 print("  ✓ PASS: Inbound PFQUEST_SYNC_REQUEST triggers pfqe broadcast")
 
-print("[TEST] 6. Verifying raid distribution routing...")
+print("[TEST] 6. Verifying raid traffic stays on PARTY (flood safety)...")
 env.GetNumRaidMembers = function() return 10 end
 sentAddonMessages = {}
 epoch.ShareQuestData(true)
 local foundRaidMsg = false
 for _, msg in ipairs(sentAddonMessages) do
-  if msg.prefix == "pfqe" and msg.dist == "RAID" then
+  if msg.prefix == "pfqe" then
+    assert(msg.dist == "PARTY", "no pfqe traffic may use RAID, got " .. tostring(msg.dist))
     foundRaidMsg = true
   end
 end
-assert(foundRaidMsg, "ShareQuestData must route to RAID channel when in a raid")
-print("  ✓ PASS: Raid distribution cleanly routed to RAID channel")
+assert(foundRaidMsg, "ShareQuestData must send on PARTY even in a raid")
+print("  ✓ PASS: Raid traffic stays on PARTY (subgroup, Epoch parity)")
 
 print("[TEST] 7. Verifying config toggles...")
 env.pfQuest_config["epochgroupsync"] = "0"

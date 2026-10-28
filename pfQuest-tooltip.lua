@@ -13,13 +13,12 @@ local function IsInGroup()
     return (GetNumRaidMembers and GetNumRaidMembers() > 0) or (GetNumPartyMembers and GetNumPartyMembers() > 0)
 end
 
+-- Epoch parity + flood safety: sync traffic always goes to PARTY.
+-- In a raid that is the sender's subgroup (same as Epoch); raid-wide
+-- broadcasts from 40 clients would storm the addon channel every debounce.
 local function GetGroupDistribution()
-    if GetNumRaidMembers and GetNumRaidMembers() > 0 then
-        return "RAID"
-    elseif GetNumPartyMembers and GetNumPartyMembers() > 0 then
-        return "PARTY"
-    end
-    return nil
+  if IsInGroup() then return "PARTY" end
+  return nil
 end
 
 local function IsSyncEnabled()
@@ -118,24 +117,6 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
                 if tAny and tDone then
                     partyDone = partyDone or {}
                     partyDone[targetName] = true
-                end
-            end
-        end
-        if known then partyComplete = done end
-    end
-    do
-        local known = false
-        local done = true
-        local targets = partyQuestData and partyQuestData[playerName]
-        if targets then
-            for _, list in pairs(targets) do
-                for _, data in ipairs(list) do
-                    if data.quest == qTitle and (not qId or not data.questId or data.questId == qId) then
-                        known = true
-                        if not (data.total and data.total >= 1 and data.current and data.current >= data.total) then
-                            done = false
-                        end
-                    end
                 end
             end
         end
@@ -1460,6 +1441,8 @@ local fullSyncLast = nil
 local FULL_SYNC_INTERVAL_SECS = 300
 
 local function PumpSyncTimers()
+    -- Sync tracing follows /db debug live (prints are everywhere below).
+    debugMode = pfQuest_config and pfQuest_config.debug and true or false
     local now = (GetTime and GetTime()) or 0
     if inboundFlushLast == nil then inboundFlushLast = now end
     if questLogSyncLast == nil then questLogSyncLast = now end
