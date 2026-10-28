@@ -396,8 +396,8 @@ pfQuest:SetScript("OnUpdate", function()
         end
 
         -- tell the party to clear our markers for this quest
-        if pfQuest.epochComms and pfQuest.epochComms.BroadcastQuestRemove then
-          pfQuest.epochComms:BroadcastQuestRemove(entry[2], entry[1])
+        if pfQuest.partyapi and pfQuest.partyapi.BroadcastQuestRemove then
+          pfQuest.partyapi:BroadcastQuestRemove(entry[2], entry[1])
         end
 
         pfQuest.abandon = ""
@@ -689,8 +689,8 @@ function pfQuest:ResetAll()
   if pfMap.DeleteNode then
     pfMap:DeleteNode("PARTY")
   end
-  if pfQuest.epochComms and pfQuest.epochComms.CleanupPartyData then
-    pfQuest.epochComms:CleanupPartyData()
+  if pfQuest.partyapi and pfQuest.partyapi.CleanupPartyData then
+    pfQuest.partyapi:CleanupPartyData()
   end
   pfQuest.questlog = {}
   pfQuest.announcedQuests = {}

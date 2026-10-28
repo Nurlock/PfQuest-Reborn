@@ -1873,7 +1873,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
 
   if pfQuest_config["currentquestgivers"] == "1" then
     -- search quest-starter
-    if quests[id]["start"] and not meta["qlogid"] then
+    if quests[id]["start"] and not meta["qlogid"] and meta["addon"] ~= "PARTY" then
       -- units
       if quests[id]["start"]["U"] then
         for _, unit in pairs(quests[id]["start"]["U"]) do
@@ -1902,7 +1902,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
     end
 
     -- search quest-ender
-    if quests[id]["end"] then
+    if quests[id]["end"] and meta["addon"] ~= "PARTY" then
       -- compute complete state once, outside both ender loops
       local ender_texture
       if meta["qlogid"] then
@@ -1910,12 +1910,8 @@ function pfDatabase:SearchQuestID(id, meta, maps)
         complete = complete or GetNumQuestLeaderBoards(meta["qlogid"]) == 0 and true or nil
         ender_texture = (complete == true or complete == 1) and pfQuestConfig.path .. "\\img\\complete_c"
           or pfQuestConfig.path .. "\\img\\complete"
-      elseif meta["partyComplete"] ~= nil then
-        -- Party quests: our log has no qlogid, so use the sender's progress.
-        -- Unknown or unfinished stays blue; only proven-complete goes gold.
-        ender_texture = meta["partyComplete"] and pfQuestConfig.path .. "\\img\\complete_c"
-          or pfQuestConfig.path .. "\\img\\complete"
-        ender_texture = pfQuestConfig.path .. "\\img\\complete_c"
+        else
+          ender_texture = pfQuestConfig.path .. "\\img\\complete_c"
       end
 
       -- units

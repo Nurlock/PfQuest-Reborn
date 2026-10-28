@@ -63,7 +63,8 @@ versioncheck:SetScript("OnEvent", function()
     local now = (GetTime and GetTime()) or 0
     if now - lastBroadcast >= 10 then
       lastBroadcast = now
-      local chan = (GetNumRaidMembers and GetNumRaidMembers() > 0) and "RAID" or ((GetNumPartyMembers and GetNumPartyMembers() > 0) and "PARTY" or nil)
+      local grouped = (GetNumPartyMembers and GetNumPartyMembers() > 0) or (GetNumRaidMembers and GetNumRaidMembers() > 0)
+      local chan = grouped and "PARTY" or nil -- subgroup only, even in raids
       if chan then SendAddonMessage("pfQReborn", "VERSION:" .. version, chan) end
     end
   end

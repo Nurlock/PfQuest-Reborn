@@ -1,4 +1,4 @@
-# party sync + tooltips (`pfQuest-tooltip.lua`, ~1.8k lines)
+# party sync (`party.lua`) + tooltips (`partytooltip.lua`)
 
 Two jobs: share live quest progress with the party, and show
 party progress in tooltips.
