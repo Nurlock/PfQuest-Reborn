@@ -1099,8 +1099,11 @@ RemoveQuestWatch = function(questIndex)
   -- follows the watch state correctly through the normal queue path (the
   -- state string includes the watched flag, and tracked-only mode hides
   -- un-watched quests there), so flagging a refresh is all that's needed.
+  -- Watch churn must stay cheap: the auto-quest-watch fires this hook on
+  -- every kill/loot tick, and giver data never depends on watch state
+  -- (visibility follows it through the normal queue path), so only the
+  -- log rebuild is flagged -- never a full giver rescan.
   pfQuest.updateQuestLog = true
-  pfQuest.updateQuestGivers = true
 
   return ret
 end
@@ -1109,8 +1112,8 @@ end
 local pfHookAddQuestWatch = AddQuestWatch
 AddQuestWatch = function(questIndex)
   local ret = pfHookAddQuestWatch(questIndex)
+  -- Same as above: no giver rescan on watch changes.
   pfQuest.updateQuestLog = true
-  pfQuest.updateQuestGivers = true
   return ret
 end
 
