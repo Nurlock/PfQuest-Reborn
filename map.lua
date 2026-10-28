@@ -360,11 +360,6 @@ pfMap.tooltip:SetScript("OnShow", function()
       end
     end
   end
-
-  -- Reforged: Questie group quest following compatibility
-  if pfQuestieComms and pfQuestieComms.ShowWorldTooltip then
-    pfQuestieComms:ShowWorldTooltip(name, GameTooltip)
-  end
 end)
 
 -- dummy function that can be used by extensions
@@ -454,11 +449,8 @@ function pfMap:ShowTooltip(meta, tooltip)
                 strfind(text, pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
               if monsterName and meta["spawn"] == monsterName then
                 catch_obj = true
-                local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
-                if not inGroup then
-                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                  tooltip:AddLine("|cffaaaaaa- |r" .. monsterName .. ": " .. objNum .. "/" .. objNeeded, r, g, b)
-                end
+                local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                tooltip:AddLine("|cffaaaaaa- |r" .. monsterName .. ": " .. objNum .. "/" .. objNeeded, r, g, b)
               end
             elseif table.getn(meta["item"]) > 0 and type == "item" and meta["droprate"] then
               -- loot
@@ -467,27 +459,24 @@ function pfMap:ShowTooltip(meta, tooltip)
               for mid, item in pairs(meta["item"]) do
                 if item == itemName then
                   catch_obj = true
-                  local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
-                  if not inGroup then
-                    local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                    local dr, dg, db = pfMap.tooltip:GetColor(tonumber(meta["droprate"]), 100)
-                    local lootcolor = string.format("%02x%02x%02x", dr * 255, dg * 255, db * 255)
-                    tooltip:AddLine(
-                      "|cffaaaaaa- |r"
-                        .. itemName
-                        .. ": "
-                        .. objNum
-                        .. "/"
-                        .. objNeeded
-                        .. " |cff555555[|cff"
-                        .. lootcolor
-                        .. meta["droprate"]
-                        .. "%|cff555555]",
-                      r,
-                      g,
-                      b
-                    )
-                  end
+                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                  local dr, dg, db = pfMap.tooltip:GetColor(tonumber(meta["droprate"]), 100)
+                  local lootcolor = string.format("%02x%02x%02x", dr * 255, dg * 255, db * 255)
+                  tooltip:AddLine(
+                    "|cffaaaaaa- |r"
+                      .. itemName
+                      .. ": "
+                      .. objNum
+                      .. "/"
+                      .. objNeeded
+                      .. " |cff555555[|cff"
+                      .. lootcolor
+                      .. meta["droprate"]
+                      .. "%|cff555555]",
+                    r,
+                    g,
+                    b
+                  )
                 end
               end
             elseif table.getn(meta["item"]) > 0 and type == "item" and meta["sellcount"] then
@@ -497,46 +486,35 @@ function pfMap:ShowTooltip(meta, tooltip)
               for mid, item in pairs(meta["item"]) do
                 if item == itemName then
                   catch_obj = true
-                  local inGroup = pfQuestieComms and pfQuestieComms.IsInGroup and pfQuestieComms:IsInGroup() and pfQuest_config["showpartytooltips"] ~= "0"
-                  if not inGroup then
-                    local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
-                    local sellcount = tonumber(meta["sellcount"]) > 0
-                        and " |cff555555[|cffcccccc" .. meta["sellcount"] .. "x" .. "|cff555555]"
-                      or ""
-                    tooltip:AddLine(
-                      "|cffaaaaaa- |r"
-                        .. pfQuest_Loc["Buy"]
-                        .. ": "
-                        .. itemName
-                        .. ": "
-                        .. objNum
-                        .. "/"
-                        .. objNeeded
-                        .. sellcount,
-                      r,
-                      g,
-                      b
-                    )
-                  end
+                  local r, g, b = pfMap.tooltip:GetColor(objNum, objNeeded)
+                  local sellcount = tonumber(meta["sellcount"]) > 0
+                      and " |cff555555[|cffcccccc" .. meta["sellcount"] .. "x" .. "|cff555555]"
+                    or ""
+                  tooltip:AddLine(
+                    "|cffaaaaaa- |r"
+                      .. pfQuest_Loc["Buy"]
+                      .. ": "
+                      .. itemName
+                      .. ": "
+                      .. objNum
+                      .. "/"
+                      .. objNeeded
+                      .. sellcount,
+                    r,
+                    g,
+                    b
+                  )
                 end
               end
             end
           end
-        end
-        -- Reforged: show party progress for shared active quests
-        if pfQuestieComms and pfQuestieComms.AddPartyTooltipLines then
-          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip, meta)
         end
       end
     end
 
     if not catch then
       if meta["partyMember"] then
-        local pColor = pfQuestieComms and pfQuestieComms:GetPlayerColor(meta["partyMember"]) or "|cff33ffcc"
-        tooltip:AddLine("|cff555555[|cff33ffcc!|cff555555]|r " .. meta["quest"] .. " (" .. pColor .. (pfQuest_Loc["Party: "] or "Party: ") .. meta["partyMember"] .. "|r)", 1, 1, 0.7)
-        if pfQuestieComms and pfQuestieComms.AddPartyTooltipLines then
-          pfQuestieComms:AddPartyTooltipLines(meta["quest"], tooltip, meta)
-        end
+        tooltip:AddLine("|cff555555[|cff33ffcc!|cff555555]|r " .. (meta["quest"] or "?") .. " (|cff33ffcc" .. (pfQuest_Loc["Party: "] or "Party: ") .. meta["partyMember"] .. "|r)", 1, 1, 0.7)
       else
         tooltip:AddLine("|cff555555[|cffffcc00!|cff555555]|r " .. meta["quest"], 1, 1, 0.7)
       end
@@ -682,6 +660,7 @@ end
 
 local customids = {
   ["AlteracValley"] = 2597,
+  ["Ragefire"] = 2437,
 }
 
 -- Reforged: sub-maps -- a map area that is a PIECE of a zone pfQuest has data
@@ -874,6 +853,38 @@ function pfMap:GetMapID(cid, mid)
   return pfMap:ParentZone(id)
 end
 
+-- Match every storage key owned by a title: the bare title itself plus all
+-- id-scoped "title\1id" keys. Lets a title-only DeleteNode clear every
+-- same-name quest (today's behavior), while AddNode keeps them separate.
+-- (Local, defined before AddNode/DeleteNode use it.)
+local function TitleKeyMatches(key, title)
+  return key == title or string.sub(key, 1, string.len(title) + 1) == title .. "\1"
+end
+
+-- Raw storage keys are id-scoped ("title\1id"); callers iterating
+-- node tables must display the bare quest title, not the key.
+-- shortcut: suffix is a decimal questid by construction (NodeStoreKey).
+local function DisplayTitle(key, node)
+  if node and node.title then return node.title end
+  if node and node.quest and type(key) == "string" then
+    local s = strfind(key, "\1", 1, true)
+    if s then return strsub(key, 1, s - 1) end
+  end
+  return key
+end
+pfMap.DisplayTitle = DisplayTitle
+
+-- Storage slot for a node: id-scoped when the caller carries a questid
+-- (quest context: SearchQuestID/SearchQuests always set meta.questid), bare
+-- otherwise (DB browser queries and other quest-less lookups share slots by
+-- name, as before). Callers holding only a title clear every id under it.
+local function NodeStoreKey(title, meta)
+  local questid = meta and meta["questid"] or nil
+  if questid then return title .. "\1" .. tostring(questid) end
+  return title
+end
+pfMap.NodeStoreKey = NodeStoreKey
+
 function pfMap:AddNode(meta)
   if not meta then
     return
@@ -895,6 +906,8 @@ function pfMap:AddNode(meta)
   local map = meta["zone"]
   local coords = meta["x"] .. "|" .. meta["y"]
   local title = meta["title"]
+  local questid = meta["questid"]
+  local storeKey = NodeStoreKey(title, meta)
   local layer = GetLayerByTexture(meta["texture"])
   local spawn = meta["spawn"]
   local item = meta["item"]
@@ -926,25 +939,25 @@ function pfMap:AddNode(meta)
   end
 
   -- skip early on existing nodes
-  if pfMap.nodes[addon][map][coords][title] then
-    if item and table.getn(pfMap.nodes[addon][map][coords][title].item) > 0 then
+  if pfMap.nodes[addon][map][coords][storeKey] then
+    if item and table.getn(pfMap.nodes[addon][map][coords][storeKey].item) > 0 then
       -- check if item already exists
-      for id, name in pairs(pfMap.nodes[addon][map][coords][title].item) do
+      for id, name in pairs(pfMap.nodes[addon][map][coords][storeKey].item) do
         if name == item then
           return
         end
       end
 
       -- add new item and exit
-      table.insert(pfMap.nodes[addon][map][coords][title].item, item)
+      table.insert(pfMap.nodes[addon][map][coords][storeKey].item, item)
       return
     end
 
     if
-      pfMap.nodes[addon][map][coords][title]
-      and pfMap.nodes[addon][map][coords][title].layer
+      pfMap.nodes[addon][map][coords][storeKey]
+      and pfMap.nodes[addon][map][coords][storeKey].layer
       and layer
-      and pfMap.nodes[addon][map][coords][title].layer >= layer
+      and pfMap.nodes[addon][map][coords][storeKey].layer >= layer
     then
       -- identical node already exists, exit here
       return
@@ -961,7 +974,7 @@ function pfMap:AddNode(meta)
   end
 
   -- set current node to combined node
-  pfMap.nodes[addon][map][coords][title] = similar_nodes[sindex]
+  pfMap.nodes[addon][map][coords][storeKey] = similar_nodes[sindex]
 
   -- mark this coord's node table dirty so UpdateNodes knows to reprocess it
   pfMap.dirtyNodes[pfMap.nodes[addon][map][coords]] = true
@@ -979,16 +992,18 @@ function pfMap:AddNode(meta)
   end
   pfMap.titleIndex[addon][title][map][coords] = true
 
-  -- add node to unified cluster cache
+  -- add node to unified cluster cache, keyed by title+questid so same-name
+  -- quests keep separate cluster coordinates
   if not meta["cluster"] and not meta["texture"] then
     local node_index = meta.item or meta.spawn or UNKNOWN
     local x, y = tonumber(meta.x), tonumber(meta.y)
+    local cacheKey = storeKey
 
     -- create prerequisite table structure
-    unifiedcache[title] = unifiedcache[title] or {}
-    unifiedcache[title][map] = unifiedcache[title][map] or {}
+    unifiedcache[cacheKey] = unifiedcache[cacheKey] or {}
+    unifiedcache[cacheKey][map] = unifiedcache[cacheKey][map] or {}
 
-    if not unifiedcache[title][map][node_index] then
+    if not unifiedcache[cacheKey][map][node_index] then
       -- create new unified node from given meta data
       local unified_meta = {}
       for key, val in pairs(meta) do
@@ -996,11 +1011,11 @@ function pfMap:AddNode(meta)
       end
 
       -- save node to unified cache
-      unifiedcache[title][map][node_index] = { meta = unified_meta, coords = {} }
+      unifiedcache[cacheKey][map][node_index] = { meta = unified_meta, coords = {} }
     end
 
     -- append new coords to unified cache unified cache
-    table.insert(unifiedcache[title][map][node_index].coords, { x, y })
+    table.insert(unifiedcache[cacheKey][map][node_index].coords, { x, y })
   end
 
   -- add to gametooltips
@@ -1028,6 +1043,12 @@ function pfMap:GetNodes(addon, title)
         if pfMap.nodes[addon][map][coords][title] then
           table.insert(nodes, pfMap.nodes[addon][map][coords][title])
         end
+        -- id-scoped keys share the title prefix "title\1id"
+        for key, n in pairs(node) do
+          if string.sub(key, 1, string.len(title) + 1) == title .. "\1" then
+            table.insert(nodes, n)
+          end
+        end
       end
     end
   end
@@ -1044,6 +1065,8 @@ function pfMap:DeleteNode(addon, title)
     pfMap.tooltipIndex = {}
     pfMap.dirtyNodes = {}
     pfMap.dirtyMaps = {}
+    pfMap.unifiedcache = {}
+    for k in pairs(similar_nodes) do similar_nodes[k] = nil end
   elseif not title then
     -- wipe all nodes for this addon; clean up both reverse indexes
     if pfMap.titleIndex[addon] then
@@ -1066,13 +1089,18 @@ function pfMap:DeleteNode(addon, title)
     end
     pfMap.nodes[addon] = nil
   elseif pfMap.titleIndex[addon] and pfMap.titleIndex[addon][title] then
-    -- fast path: use reverse index to find exactly which (map, coords) to clear
+    -- fast path: use reverse index to find exactly which (map, coords) to clear.
+    -- A title may own several id-scoped storage keys; clear them all.
     for map, coords_set in pairs(pfMap.titleIndex[addon][title]) do
       pfMap.dirtyMaps[map] = true
       if pfMap.nodes[addon] and pfMap.nodes[addon][map] then
         for coords in pairs(coords_set) do
           if pfMap.nodes[addon][map][coords] then
-            pfMap.nodes[addon][map][coords][title] = nil
+            for key in pairs(pfMap.nodes[addon][map][coords]) do
+              if TitleKeyMatches(key, title) then
+                pfMap.nodes[addon][map][coords][key] = nil
+              end
+            end
             if IsEmpty(pfMap.nodes[addon][map][coords]) then
               pfMap.nodes[addon][map][coords] = nil
             else
@@ -1099,21 +1127,28 @@ function pfMap:DeleteNode(addon, title)
       pfMap.tooltipIndex[title] = nil
     end
 
-    if pfMap.unifiedcache and pfMap.unifiedcache[title] then
-      pfMap.unifiedcache[title] = nil
+    -- unifiedcache is keyed by title+questid: drop every key under this title
+    if pfMap.unifiedcache then
+      for key in pairs(pfMap.unifiedcache) do
+        if TitleKeyMatches(key, title) then
+          pfMap.unifiedcache[key] = nil
+        end
+      end
     end
   elseif pfMap.nodes[addon] then
     -- fallback: linear scan over pfMap.nodes[addon] if reverse index had a miss
     for map, coords_tbl in pairs(pfMap.nodes[addon]) do
       for coords, titles in pairs(coords_tbl) do
-        if titles[title] then
-          titles[title] = nil
-          pfMap.dirtyMaps[map] = true
-          if IsEmpty(titles) then
-            coords_tbl[coords] = nil
-          else
-            pfMap.dirtyNodes[titles] = true
+        for key in pairs(titles) do
+          if TitleKeyMatches(key, title) then
+            titles[key] = nil
+            pfMap.dirtyMaps[map] = true
           end
+        end
+        if IsEmpty(titles) then
+          coords_tbl[coords] = nil
+        else
+          pfMap.dirtyNodes[titles] = true
         end
       end
     end
@@ -1131,8 +1166,12 @@ function pfMap:DeleteNode(addon, title)
       pfMap.tooltipIndex[title] = nil
     end
 
-    if pfMap.unifiedcache and pfMap.unifiedcache[title] then
-      pfMap.unifiedcache[title] = nil
+    if pfMap.unifiedcache then
+      for key in pairs(pfMap.unifiedcache) do
+        if TitleKeyMatches(key, title) then
+          pfMap.unifiedcache[key] = nil
+        end
+      end
     end
   end
 
@@ -1145,6 +1184,14 @@ function pfMap:DeleteNode(addon, title)
 end
 
 function pfMap:NodeClick()
+  if IsAltKeyDown() and this.spawnid and pfQuestLoot and pfQuestLoot.ShowPinned then
+    local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.spawnid]
+    if unitData and unitData["rnk"] then
+      pfQuestLoot.ShowPinned(this)
+      return
+    end
+  end
+
   if IsShiftKeyDown() then
     if this.questid and this.texture and this.layer < 5 then
       -- mark questnode as done
@@ -1234,6 +1281,22 @@ function pfMap:NodeEnter()
     0.8
   )
   tooltip:AddDoubleLine(pfQuest_Loc["Level"] .. ":", (this.level or UNKNOWN), 0.8, 0.8, 0.8, 1, 1, 1)
+  if this.spawnid then
+    local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.spawnid]
+    if unitData and unitData.rnk then
+      local rankText = nil
+      if unitData.rnk == 1 then rankText = pfQuest_Loc["Elite"] or "Elite"
+      elseif unitData.rnk == 2 then rankText = pfQuest_Loc["Rare Elite"] or "Rare Elite"
+      elseif unitData.rnk == 3 then rankText = pfQuest_Loc["Boss"] or "Boss"
+      elseif unitData.rnk == 4 then rankText = pfQuest_Loc["Rare"] or "Rare" end
+      if rankText then
+        tooltip:AddDoubleLine(pfQuest_Loc["Classification"] or "Classification" .. ":", rankText, 0.8, 0.8, 0.8, 1, 1, 0)
+      end
+      if pfQuestLoot and pfQuestLoot.HasDrops and pfQuestLoot.HasDrops(this.spawnid) then
+        tooltip:AddLine(pfQuest_Loc["Alt-Click To Show Item Drops"] or "Alt-Click To Show Item Drops", 0.6, 0.6, 0.6)
+      end
+    end
+  end
   -- Reforged: a number of rares belong to one faction and simply cannot be
   -- fought by the other, which sent players across a zone after a mob they were
   -- never going to be able to attack (issue #31). pfQuest already knows this: it
@@ -1270,8 +1333,42 @@ function pfMap:NodeEnter()
     end
   end
 
-  for title, meta in pairs(this.node) do
+  for _, meta in pairs(this.node) do
     pfMap:ShowTooltip(meta, tooltip)
+  end
+
+  local itemStartMeta = nil
+  for _, meta in pairs(this.node) do
+    if meta.QTYPE == "ITEM_START" and meta.dropsources_levels then
+      itemStartMeta = meta
+      break
+    end
+  end
+
+  if itemStartMeta and itemStartMeta.dropsources_levels then
+    tooltip:AddLine(" ")
+    tooltip:AddLine(pfQuest_Loc["Drops from:"] or "Drops from:", 0.8, 0.8, 0.8)
+
+    local sorted_sources = {}
+    for source_name, data in pairs(itemStartMeta.dropsources_levels) do
+      table.insert(sorted_sources, {name = source_name, level = data.level, chance = data.chance or 0})
+    end
+
+    table.sort(sorted_sources, function(a, b)
+      return a.chance > b.chance
+    end)
+
+    local count = 0
+    for _, source in ipairs(sorted_sources) do
+      count = count + 1
+      if count <= 5 then
+        tooltip:AddLine("  " .. source.name .. " (" .. source.level .. ") - " .. source.chance .. "%", 1, 1, 1)
+      end
+    end
+
+    if table.getn(sorted_sources) > 5 then
+      tooltip:AddLine("  (+" .. (table.getn(sorted_sources) - 5) .. " more)", 0.7, 0.7, 0.7)
+    end
   end
 
   -- add tooltip help if setting is enabled
@@ -1374,8 +1471,8 @@ function pfMap:UpdateNode(frame, node, color, obj, distance)
   -- reset layer
   frame.layer = 0
 
-  for title, tab in pairs(node) do
-    pfMap.highlightdb[frame][title] = true
+  for storeKey, tab in pairs(node) do
+    pfMap.highlightdb[frame][storeKey] = true
 
     tab.layer = GetLayerByTexture(tab.texture)
 
@@ -1403,7 +1500,7 @@ function pfMap:UpdateNode(frame, node, color, obj, distance)
       frame.questid = tab.questid
       frame.texture = tab.texture
       frame.vertex = tab.vertex
-      frame.title = title
+      frame.title = pfMap.DisplayTitle(storeKey, tab)
       frame.func = tab.func
       frame.cluster = tab.cluster
       frame.description = tab.description
@@ -1643,9 +1740,9 @@ function pfMap:UpdateNodes()
         elseif pfQuest_config["showspawn"] == "0" and addon == "PFQUEST" and not pfMap.pins[i].texture then
           pfMap.pins[i]:Hide()
         else
-          -- populate quest list on map
-          for title, node in pairs(pfMap.pins[i].node) do
-            pfQuest.tracker.ButtonAdd(title, node)
+          -- populate quest list on map (display title, not storage key)
+          for storeKey, node in pairs(pfMap.pins[i].node) do
+            pfQuest.tracker.ButtonAdd(pfMap.DisplayTitle(storeKey, node), node)
           end
 
           local px = x / 100 * mapW
@@ -1885,16 +1982,12 @@ function pfMap:UpdateMinimap()
   end
 end
 
-local zone
 pfMap:RegisterEvent("ZONE_CHANGED")
 pfMap:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 pfMap:RegisterEvent("MINIMAP_ZONE_CHANGED")
 pfMap:RegisterEvent("PLAYER_ENTERING_WORLD")
 pfMap:RegisterEvent("WORLD_MAP_UPDATE")
 pfMap:SetScript("OnEvent", function()
-  -- save current zone
-  zone = GetCurrentMapZone()
-
   -- set map to current zone when possible
   if event == "ZONE_CHANGED" or event == "MINIMAP_ZONE_CHANGED"
      or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD" then

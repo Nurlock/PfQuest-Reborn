@@ -128,7 +128,7 @@ ExpandQuestHeader = function(index)
 end
 
 if client >= 30300 then
-  pfQuest.dburl = "https://www.wowhead.com/wotlk/quest="
+  pfQuest.dburl = "https://epochhead.com/?quest="
 elseif client >= 20400 then
   pfQuest.dburl = "https://www.wowhead.com/tbc/quest="
 else
@@ -377,9 +377,8 @@ pfQuest:SetScript("OnUpdate", function()
           pfQuest_history[entry[2]] = { time(), UnitLevel("player") }
           if not (pfQuest.lock and pfQuest.lock > GetTime()) and not pfQuest.announcedQuests[entry[2]] then
             pfQuest.announcedQuests[entry[2]] = true
-            local comms = pfQuest.questieComms
-            if comms and comms.AnnounceQuest then
-              comms:AnnounceQuest(entry[2], entry[1], true)
+            if pfQuestAnnounce and pfQuestAnnounce.AnnounceQuest then
+              pfQuestAnnounce.AnnounceQuest(entry[2], entry[1], true)
             end
           end
         end
@@ -405,12 +404,12 @@ pfQuest:SetScript("OnUpdate", function()
           pfQuest:Debug(format("|cffffff00TIMER DeleteNode(REMOVE): %.4fs", GetTime() - t0))
         end
 
-        pfQuest.abandon = ""
-
-        -- Reforged: Questie group quest following compatibility
-        if pfQuestieComms and pfQuestieComms.BroadcastQuestRemove then
-          pfQuestieComms:BroadcastQuestRemove(entry[2])
+        -- tell the party to clear our markers for this quest
+        if pfQuest.epochComms and pfQuest.epochComms.BroadcastQuestRemove then
+          pfQuest.epochComms:BroadcastQuestRemove(entry[2], entry[1])
         end
+
+        pfQuest.abandon = ""
       else
         if entry[4] == "NEW" then
           pfQuest:Debug("|cff55ff55New Quest: " .. entry[1] .. " (" .. entry[2] .. ")")
@@ -483,11 +482,6 @@ pfQuest:SetScript("OnUpdate", function()
             pfDatabase:SearchQuestID(entry[2], meta)
             pfQuest:Debug(format("|cffff8800TIMER SearchQuestID: %.4fs", GetTime() - t1))
           end
-        end
-
-        -- Reforged: Questie group quest following compatibility
-        if pfQuestieComms and pfQuestieComms.BroadcastQuestUpdate then
-          pfQuestieComms:BroadcastQuestUpdate(entry[2])
         end
       end
 
@@ -574,9 +568,8 @@ function pfQuest:UpdateQuestlog()
         if isNowComplete and not wasComplete then
           pfQuest.questlog[questid].isComplete = true
           pfQuest.announcedQuests[questid] = true
-          local comms = pfQuest.questieComms
-          if comms and comms.AnnounceQuest then
-            comms:AnnounceQuest(questid, title, false)
+          if pfQuestAnnounce and pfQuestAnnounce.AnnounceQuest then
+            pfQuestAnnounce.AnnounceQuest(questid, title, false)
           end
         else
           pfQuest.questlog[questid].isComplete = isNowComplete
@@ -639,10 +632,13 @@ function pfQuest:UpdateQuestlog()
   -- transient burst hiccup (unreadable slot, or the count under-report above),
   -- not a real turn-in. Require TWO consecutive misses before removing, so a
   -- one-scan flicker never deletes nodes or poisons pfQuest_history.
+  -- Collapsed quests count misses too (the collapsed flag only suppresses the
+  -- re-add scan, never a real turn-in): on the 2nd miss the REMOVE fires and
+  -- the REMOVE handler clears the stale collapsed flag.
   for questid, data in pairs(pfQuest.questlog) do
     if not pfQuest.questlog_tmp[questid] then
       data.gwMiss335 = (data.gwMiss335 or 0) + 1
-      if data.gwMiss335 >= 2 and not pfQuest.collapsedQuestIDs[questid] then
+      if data.gwMiss335 >= 2 then
         queueAdd({ data.title, questid, nil, "REMOVE" })
         change = true
       else
@@ -673,6 +669,12 @@ end
 function pfQuest:ResetAll()
   -- force reload all quests
   pfMap:DeleteNode("PFQUEST")
+  if pfMap.DeleteNode then
+    pfMap:DeleteNode("PARTY")
+  end
+  if pfQuest.epochComms and pfQuest.epochComms.CleanupPartyData then
+    pfQuest.epochComms:CleanupPartyData()
+  end
   pfQuest.questlog = {}
   pfQuest.announcedQuests = {}
   pfQuest.updateQuestLog = true
@@ -681,16 +683,6 @@ function pfQuest:ResetAll()
   if pfDatabase then
     for id in pairs(pfDatabase.lastQuestGiversSet) do
       pfDatabase.lastQuestGiversSet[id] = nil
-    end
-  end
-
-  if pfQuest.questieComms then
-    if not pfQuest.questieComms:IsEnabled() or pfQuest_config["showpartyobjectives"] == "0" then
-      pfQuest.questieComms:ClearAllPartyData()
-    elseif pfQuest.questieComms:IsInGroup() then
-      pfQuest.questieComms:RequestFullQuestList()
-      pfQuest.questieComms:BroadcastFullQuestList()
-      pfQuest.questieComms:SendVisibilitySnapshot()
     end
   end
 end

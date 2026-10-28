@@ -12,8 +12,10 @@ local GetTime = GetTime
 local ITEM_SOURCE_KEYS = { "U", "O", "V" }
 local SEARCH_TABS = { "Units", "Objects", "Items", "Quests" }
 
--- default config
-pfBrowser_fav = { ["units"] = {}, ["objects"] = {}, ["items"] = {}, ["quests"] = {} }
+if type(pfBrowser_fav) ~= "table" then pfBrowser_fav = {} end
+for _, tab in pairs({ "units", "objects", "items", "quests" }) do
+  if type(pfBrowser_fav[tab]) ~= "table" then pfBrowser_fav[tab] = {} end
+end
 
 local tooltip_limit = 5
 local search_limit = 512
@@ -89,6 +91,20 @@ local function ResultButtonEnter()
       if unitData and unitData.lvl then
         GameTooltip:AddLine(" ")
         GameTooltip:AddDoubleLine(pfQuest_Loc["Level"], unitData.lvl, 1, 1, 0.8, 1, 1, 1)
+      end
+
+      if unitData and unitData.rnk then
+        local rankText = nil
+        if unitData.rnk == 1 then rankText = pfQuest_Loc["Elite"] or "Elite"
+        elseif unitData.rnk == 2 then rankText = pfQuest_Loc["Rare Elite"] or "Rare Elite"
+        elseif unitData.rnk == 3 then rankText = pfQuest_Loc["Boss"] or "Boss"
+        elseif unitData.rnk == 4 then rankText = pfQuest_Loc["Rare"] or "Rare" end
+        if rankText then
+          GameTooltip:AddDoubleLine(pfQuest_Loc["Classification"] or "Classification", rankText, 0.8, 0.8, 0.8, 1, 1, 0)
+        end
+        if pfQuestLoot and pfQuestLoot.HasDrops and pfQuestLoot.HasDrops(id) then
+          GameTooltip:AddLine(pfQuest_Loc["Alt-Click To Show Item Drops"] or "Alt-Click To Show Item Drops", 0.6, 0.6, 0.6)
+        end
       end
 
       local reactionStringA = "|c00ff0000" .. pfQuest_Loc["Hostile"] .. "|r"
@@ -176,6 +192,13 @@ local function ResultButtonClick()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
   elseif this.btype == "units" then
+    if IsAltKeyDown() and this.id and pfQuestLoot and pfQuestLoot.ShowPinned then
+      local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.id]
+      if unitData and unitData["rnk"] then
+        pfQuestLoot.ShowPinned(this)
+        return
+      end
+    end
     if pfBrowser.selectState then
       local maps = pfDatabase:SearchMob(this.name, meta)
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))

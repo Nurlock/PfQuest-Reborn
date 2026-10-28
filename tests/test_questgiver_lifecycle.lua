@@ -72,7 +72,8 @@ assert(env.pfMap.nodes["PFQUEST"][1], "Map zone 1 nodes should exist")
 local willemCoords = "48|42"
 local willemNode = env.pfMap.nodes["PFQUEST"][1][willemCoords]
 assert(willemNode, "Deputy Willem should have a node at 48|42")
-assert(willemNode["A Threat Within"], "Node at 48|42 MUST be keyed by 'A Threat Within', not leaked title!")
+local willemKey = env.pfMap.NodeStoreKey("A Threat Within", { quest = "A Threat Within", title = "A Threat Within", questid = 783 })
+assert(willemNode[willemKey], "Node at 48|42 MUST be keyed by id-scoped 'A Threat Within', not leaked title!")
 assert(not willemNode["Kobold Candles"], "Node at 48|42 must NOT have title 'Kobold Candles'!")
 assert(env.pfMap.titleIndex["PFQUEST"]["A Threat Within"], "titleIndex must have entry for 'A Threat Within'")
 assert(env.pfMap.titleIndex["PFQUEST"]["A Threat Within"][1][willemCoords], "titleIndex must point to 48|42")
@@ -96,7 +97,7 @@ env.pfDatabase:SearchQuestID(783, qmeta)
 local mcbrideCoords = "49|40"
 local mcbrideNode = env.pfMap.nodes["PFQUEST"][1][mcbrideCoords]
 assert(mcbrideNode, "Marshal McBride (ender) should have a node at 49|40")
-assert(mcbrideNode["A Threat Within"], "Marshal McBride node should have title 'A Threat Within'")
+assert(mcbrideNode[willemKey], "Marshal McBride node should have id-scoped title 'A Threat Within'")
 print("  ✓ PASS: Quest ender node added for active quest")
 
 -- 5. Run SearchQuests again (Phase 2): active quest ender must NOT be wiped
@@ -108,3 +109,14 @@ assert(not env.pfMap.nodes["PFQUEST"][1][willemCoords], "Deputy Willem starter n
 print("  ✓ PASS: Active quest nodes preserved, completed starter not resurrected")
 
 print("[TEST] test_questgiver_lifecycle PASSED successfully!")
+
+-- 6. DisplayTitle: id-scoped storage keys must display the bare title
+print("[TEST] Verifying DisplayTitle strips id-suffix...")
+assert(env.pfMap.DisplayTitle, "pfMap.DisplayTitle must exist")
+local scopedNode = { title = "Tomes of Interest", quest = "Tomes of Interest", questid = 26876 }
+assert(env.pfMap.DisplayTitle("Tomes of Interest\00126876", scopedNode) == "Tomes of Interest",
+  "id-scoped key must display as bare title")
+assert(env.pfMap.DisplayTitle("A Threat Within", { title = "A Threat Within" }) == "A Threat Within",
+  "bare keys must pass through unchanged")
+print("  ✓ PASS: DisplayTitle strips id-suffix")
+print("[TEST] test_displaytitle PASSED successfully!")

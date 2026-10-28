@@ -12,8 +12,13 @@
   <Include file="..\route.lua" />
   <Include file="..\tracker.lua" />
   <Include file="..\browser.lua" />
+  <Include file="..\lootpanel.lua" />
+  <Include file="..\nameplates.lua" />
+  <Include file="..\continent.lua" />
+  <Include file="..\automation.lua" />
+  <Include file="..\announce.lua" />
   <Include file="..\journal.lua" />
   <Include file="..\menu.lua" />
   <Include file="..\updatenotify.lua" />
-  <Include file="..\questiecomms.lua" />
+  <Include file="..\pfQuest-tooltip.lua" />
 </Ui>

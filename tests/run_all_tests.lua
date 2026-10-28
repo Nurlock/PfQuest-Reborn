@@ -10,7 +10,21 @@ local suites = {
   "tests/test_performance_guards.lua",
   "tests/test_config_dependencies.lua",
   "tests/test_wizard_lifecycle.lua",
+  "tests/test_party_sync_and_tooltips.lua",
+  "tests/test_epoch_features.lua",
 }
+
+local repoRoot = nil
+local src = debug and debug.getinfo and debug.getinfo(1, "S").source
+if src and string.sub(src, 1, 1) == "@" then
+  local path = string.sub(src, 2)
+  local prefix = string.match(path, "^(.*)[/\\]tests[/\\][^/\\]+$")
+  if prefix then
+    repoRoot = prefix
+  elseif string.match(path, "^tests[/\\][^/\\]+$") then
+    repoRoot = "."
+  end
+end
 
 print("======================================================================")
 print("  pfQuest-Reborn Regression Test Suite (Lua 5.1 / WoW 3.3.5a)")
@@ -22,7 +36,12 @@ local startTime = os.clock()
 
 for _, suitePath in ipairs(suites) do
   print("\n>>> Running " .. suitePath .. "...")
-  local cmd = string.format("lua5.1 %s", suitePath)
+  local cmd
+  if repoRoot and repoRoot ~= "" and repoRoot ~= "." then
+    cmd = string.format("cd %q && lua5.1 %q", repoRoot, suitePath)
+  else
+    cmd = string.format("lua5.1 %q", suitePath)
+  end
   local status = os.execute(cmd)
 
   -- In Lua 5.1, os.execute returns the exit code directly (0 for success)

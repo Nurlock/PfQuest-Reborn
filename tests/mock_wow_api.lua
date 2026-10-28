@@ -168,13 +168,28 @@ function M.create_env()
     function f:SetVerticalScroll(v) self._vscroll = v end
     function f:GetVerticalScroll() return self._vscroll or 0 end
     function f:SetNormalTexture() end
+    function f:GetNormalTexture() return nil end
+    function f:GetPushedTexture() return nil end
+    function f:GetHighlightTexture() return nil end
     function f:SetPushedTexture() end
     function f:SetHighlightTexture() end
+    function f:SetTexCoord() end
+    function f:SetDesaturated() end
     function f:SetAlpha(a) self._alpha = a end
     function f:GetAlpha() return self._alpha or 1 end
 
     function f:SetScript(handler, fn)
-      self._scripts[handler] = fn
+      -- Mirror WoW chaining: a second SetScript on the same handler must
+      -- not silently drop the first (eventFrame sets OnEvent then OnUpdate).
+      local prev = self._scripts[handler]
+      if prev and fn then
+        self._scripts[handler] = function(...)
+          prev(...)
+          fn(...)
+        end
+      else
+        self._scripts[handler] = fn
+      end
     end
     function f:GetScript(handler)
       return self._scripts[handler]

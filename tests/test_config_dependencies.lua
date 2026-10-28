@@ -57,13 +57,56 @@ local pfQuest_defconfig = env.pfQuest_defconfig
 pfQuestConfig:LoadConfig()
 pfQuestConfig:CreateConfigEntries(pfQuest_defconfig)
 
-print("[TEST] Verifying initial state: Experimental Features disabled by default...")
-assert(pfQuest_config["experimental"] == "0", "experimental should default to '0'")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["experimental"]) == true, "Master toggle itself must be active")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questiegroup"]) == false, "questiegroup must be inactive when experimental=0")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartyobjectives"]) == false, "showpartyobjectives must be inactive when experimental=0")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartytooltips"]) == false, "showpartytooltips must be inactive when experimental=0")
-assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questannounce"]) == false, "questannounce must be inactive when experimental=0")
+print("[TEST] Verifying tab layout: 9 tabs in frequency order...")
+local tabKeys = {}
+for _, tabInfo in ipairs(pfQuestConfig.tabList) do
+  table.insert(tabKeys, tabInfo.key)
+end
+local expectedTabs = {
+  "Quests", "Tracker", "Map & Minimap", "Group Sync & Chat", "Loot Panel",
+  "Nameplates", "Automation", "General", "User Data",
+}
+assert(table.getn(tabKeys) == table.getn(expectedTabs),
+  "expected " .. table.getn(expectedTabs) .. " tabs, got " .. table.getn(tabKeys))
+for i, expected in ipairs(expectedTabs) do
+  assert(tabKeys[i] == expected,
+    "tab " .. i .. " should be '" .. expected .. "', got '" .. tostring(tabKeys[i]) .. "'")
+end
+print("  ✓ PASS: Tab order verified (" .. table.concat(tabKeys, " / ") .. ")")
+
+print("[TEST] Verifying subheaders render as non-interactive accent captions...")
+local subheaderCount = 0
+for _, frame in ipairs(pfQuestConfig.entryFrames) do
+  if frame.data and frame.data.type == "subheader" then
+    subheaderCount = subheaderCount + 1
+    assert(frame.input == nil, "subheader '" .. tostring(frame.data.text) .. "' must have no input control")
+    assert(frame.enabled == true, "subheader '" .. tostring(frame.data.text) .. "' must stay enabled")
+  end
+end
+assert(subheaderCount >= 8, "expected at least 8 subheaders, got " .. subheaderCount)
+print("  ✓ PASS: " .. subheaderCount .. " subheaders render without inputs and stay enabled")
+
+print("[TEST] Verifying mindropchance moved under Loot Panel...")
+local lootTab = nil
+for _, tabInfo in ipairs(pfQuestConfig.tabList) do
+  if tabInfo.key == "Loot Panel" then lootTab = tabInfo break end
+end
+assert(lootTab, "Loot Panel tab must exist")
+local foundDropChance = false
+for _, data in ipairs(lootTab.entries) do
+  if data.config == "mindropchance" then foundDropChance = true break end
+end
+assert(foundDropChance, "mindropchance must live under Loot Panel")
+print("  ✓ PASS: mindropchance is under Loot Panel")
+
+print("[TEST] Verifying Group Sync gating: children follow epochgroupsync master...")
+assert(pfQuest_config["epochgroupsync"] == "1", "epochgroupsync should default to '1'")
+assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["epochgroupsync"]) == true, "epochgroupsync master itself must be active")
+assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartyobjectives"]) == true, "showpartyobjectives must be active when epochgroupsync=1")
+assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["showpartytooltips"]) == true, "showpartytooltips must be active when epochgroupsync=1")
+
+-- questannounce lives under Group Sync & Chat > Announcements (active regardless of experimental)
+assert(pfQuestConfig:IsEntryActive(pfQuestConfig.configMap["questannounce"]) == true, "questannounce must be active under Announcements")
 
 -- Helper to find frame by config key
 local function GetFrame(configKey)
@@ -75,51 +118,37 @@ local function GetFrame(configKey)
   error("Frame not found for config: " .. tostring(configKey))
 end
 
-local expFrame = GetFrame("experimental")
-local groupFrame = GetFrame("questiegroup")
+local syncFrame = GetFrame("epochgroupsync")
 local objFrame = GetFrame("showpartyobjectives")
 local tooltipFrame = GetFrame("showpartytooltips")
-local annFrame = GetFrame("questannounce")
 
--- Verify visual graying out and disabled status on all 4 children
-local expChildren = { groupFrame, objFrame, tooltipFrame, annFrame }
-for _, frame in ipairs(expChildren) do
-  assert(frame.enabled == false, "Frame for " .. frame.data.config .. " should have frame.enabled == false")
-  assert(frame.input:IsEnabled() == false, "Input for " .. frame.data.config .. " should be disabled")
-  assert(frame.input:IsMouseEnabled() == false, "Input for " .. frame.data.config .. " should have mouse disabled")
-  local r, g, b = frame.caption:GetTextColor()
-  assert(r == 0.5 and g == 0.5 and b == 0.5, "Caption for " .. frame.data.config .. " should be grayed out (0.5, 0.5, 0.5)")
+-- Verify children enabled by default (no experimental gate)
+local syncChildren = { objFrame, tooltipFrame }
+for _, frame in ipairs(syncChildren) do
+  assert(frame.enabled == true, "Frame for " .. frame.data.config .. " should be enabled when epochgroupsync=1")
 end
-print("  ✓ PASS: All 4 experimental sub-features are properly grayed out and disabled initially")
+print("  ✓ PASS: Both party-sync children enabled when master is on")
 
-print("[TEST] Simulating enabling master Experimental toggle...")
-expFrame.input:SetChecked(true)
-expFrame.input:FireScript("OnClick")
+print("[TEST] Simulating disabling Group Sync master toggle...")
+syncFrame.input:SetChecked(false)
+syncFrame.input:FireScript("OnClick")
 
-assert(pfQuest_config["experimental"] == "1", "experimental config should now be '1'")
-assert(groupFrame.enabled == true, "questiegroup should now be enabled")
-assert(groupFrame.input:IsEnabled() == true, "questiegroup input should now be enabled")
-assert(groupFrame.input:IsMouseEnabled() == true, "questiegroup mouse should now be enabled")
-local r, g, b = groupFrame.caption:GetTextColor()
-assert(r == 1 and g == 1 and b == 1, "questiegroup caption should now be full white (1, 1, 1)")
-
--- Because questiegroup default is "1", its children should also activate
-assert(objFrame.enabled == true, "showpartyobjectives should now be enabled")
-assert(tooltipFrame.enabled == true, "showpartytooltips should now be enabled")
-assert(annFrame.enabled == true, "questannounce should now be enabled")
-print("  ✓ PASS: Toggling master switch dynamically enables child options")
-
-print("[TEST] Simulating disabling questiegroup while master switch is ON...")
-groupFrame.input:SetChecked(false)
-groupFrame.input:FireScript("OnClick")
-
-assert(pfQuest_config["questiegroup"] == "0", "questiegroup should be '0'")
+assert(pfQuest_config["epochgroupsync"] == "0", "epochgroupsync config should now be '0'")
 assert(objFrame.enabled == false, "showpartyobjectives should now be disabled")
 assert(tooltipFrame.enabled == false, "showpartytooltips should now be disabled")
-assert(annFrame.enabled == false, "questannounce should now be disabled")
-print("  ✓ PASS: Disabling intermediate parent properly cascades grayout to descendants")
+print("  ✓ PASS: Disabling master switch dynamically disables child options")
+
+print("[TEST] Simulating re-enabling Group Sync master toggle...")
+syncFrame.input:SetChecked(true)
+syncFrame.input:FireScript("OnClick")
+assert(objFrame.enabled == true, "showpartyobjectives should now be enabled")
+assert(tooltipFrame.enabled == true, "showpartytooltips should now be enabled")
+print("  ✓ PASS: Toggling master switch dynamically enables child options")
 
 print("[TEST] Verifying click prevention on disabled checkbox...")
+syncFrame.input:SetChecked(false)
+syncFrame.input:FireScript("OnClick")
+assert(objFrame.enabled == false, "precondition: child must be disabled")
 local savedVal = pfQuest_config["showpartyobjectives"]
 objFrame.input:SetChecked(not objFrame.input:GetChecked())
 objFrame.input:FireScript("OnClick")

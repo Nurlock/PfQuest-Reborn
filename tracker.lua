@@ -781,7 +781,9 @@ function tracker.RefreshZoneTracker()
   -- zone so tracker entries can reuse the same icon metadata as map pins.
   if playerZone and pfMap.nodes["PFQUEST"] and pfMap.nodes["PFQUEST"][playerZone] then
     for coords, coordNode in pairs(pfMap.nodes["PFQUEST"][playerZone]) do
-      for title, node in pairs(coordNode) do
+      for storeKey, node in pairs(coordNode) do
+        -- display the bare quest title, never the id-scoped storage key
+        local title = pfMap.DisplayTitle(storeKey, node)
         local qid = node.questid or title
         if pfQuest.questlog[qid] and not pfQuest.questlog[qid].collapsed then
           local current = localQuestNodes[qid]
@@ -887,8 +889,10 @@ function tracker.ButtonAdd(title, node)
 
   local id
 
-  -- O(1) duplicate check via reverse map (replaces linear scan of tracker.buttons)
-  local existing = tracker.buttonByTitle[title]
+  -- O(1) duplicate check via reverse map (replaces linear scan of tracker.buttons).
+  -- Keyed by title+questid so same-name distinct quests get their own button.
+  local buttonKey = questid ~= title and (title .. "\1" .. tostring(questid)) or title
+  local existing = tracker.buttonByTitle[buttonKey]
   if existing then
     local button = tracker.buttons[existing]
     if node.dummy or not node.texture then
@@ -965,7 +969,7 @@ function tracker.ButtonAdd(title, node)
   tracker.buttons[id].questid = questid
 
   -- keep reverse map in sync
-  tracker.buttonByTitle[title] = id
+  tracker.buttonByTitle[buttonKey] = id
 
   -- reload button data
   tracker.ButtonEvent(tracker.buttons[id])

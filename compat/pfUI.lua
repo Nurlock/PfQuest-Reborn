@@ -80,11 +80,11 @@ pfUI.api.SetButtonFontColor = pfUI.api.SetButtonFontColor
   end
 
 pfUI.api.strsplit = pfUI.api.strsplit
-  or function(delimiter, subject)
+  or function(delim, subject)
     if not subject then
       return nil
     end
-    local delimiter, fields = delimiter or ":", {}
+    local delimiter, fields = delim or ":", {}
     local pattern = string.format("([^%s]+)", delimiter)
     string.gsub(subject, pattern, function(c)
       fields[table.getn(fields) + 1] = c
@@ -148,13 +148,13 @@ pfUI.api.CreateBackdrop = pfUI.api.CreateBackdrop
     if not f.backdrop then
       f:SetBackdrop(nil)
 
-      local border = tonumber(border) - 1
+      local borderSize = tonumber(border) - 1
       local backdrop = pfUI.backdrop
-      if border < 1 then
+      if borderSize < 1 then
         backdrop = pfUI.backdrop_small
       end
       local b = CreateFrame("Frame", nil, f)
-      b:SetPoint("TOPLEFT", f, "TOPLEFT", -border, border)
+      b:SetPoint("TOPLEFT", f, "TOPLEFT", -borderSize, borderSize)
       b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", border, -border)
 
       local level = f:GetFrameLevel()
@@ -254,7 +254,7 @@ pfUI.api.CreateScrollFrame = pfUI.api.CreateScrollFrame
     end
 
     f.Scroll = function(self, step)
-      local step = step or 0
+      step = step or 0
 
       local current = f:GetVerticalScroll()
       local max = f:GetVerticalScrollRange()
