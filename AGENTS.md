@@ -18,7 +18,7 @@ frame, and every extra line costs runtime + review tokens later.
 - Logic lives in root `*.lua`: `quest.lua` (log scan loop),
   `tracker.lua` (watch frame), `route.lua` (TSP + line drawing),
   `map.lua` (pins, 2.2k lines), `database.lua` (search/cache, 3k),
-  `pfQuest-tooltip.lua` (party sync protocol + tooltip hooks, 1.7k).
+  `party.lua` (party sync protocol) + `partytooltip.lua` (tooltip hooks).
 - Tests: `lua5.1 tests/run_all_tests.lua` (9 suites). Mocks live in
   `tests/mock_wow_api.lua`.
 
@@ -66,7 +66,7 @@ frame, and every extra line costs runtime + review tokens later.
   don't create textures/frames per tick (`route.lua DrawLine` already
   leaks this way — hides, never releases).
 - `QUEST_LOG_UPDATE` → full quest-DB rescan + party broadcast
-  (`pfQuest-tooltip.lua:1541-1545`). Any new consumer of this event
+  (`party.lua` event frame). Any new consumer of this event
   must debounce or it spams addon chat N-to-N in raids.
 - Tooltip hooks (`HookGameTooltip`, `HookPfQuestTooltip`) run per
   tooltip show: no full-log scans, no per-line raid scans — cache or
@@ -88,7 +88,7 @@ frame, and every extra line costs runtime + review tokens later.
 
 ## Known bugs (from 2026-10 audit, unfixed)
 
-Inbound `REMOVEQ` dropped (`pfQuest-tooltip.lua:1497-1505`); journal
+Inbound `REMOVEQ` dropped (see `party.lua` receive path); journal
 nil-index crash (`journal.lua:122-123`); nil cached into
 `pfQuest_questcache` (`database.lua:2815`); self-echo stored in party
 data; no sender/channel check on `pfqe`; update notices skip PARTY

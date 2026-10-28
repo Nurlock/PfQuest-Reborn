@@ -1,3 +1,8 @@
+-- party.lua: everything shared. Owns party sync state (partyQuestData),
+-- the pfqe wire, and orchestration into the map/database/quest owners.
+-- Display-only code (tooltip hooks) lives in partytooltip.lua and reads
+-- this layer through pfQuest.partyapi like any other consumer.
+
 local partyQuestData = {}
 local lastBroadcastState = {}
 local previousQuestList = {}
@@ -64,11 +69,36 @@ local function DeletePartyQuestNodes(questId, sender)
     end
 end
 
-local function UpdatePartyMapNodes(questId, playerName, questTitle)
-    if not IsInGroup() or not IsSyncEnabled() then return end
-    if pfQuest_config and pfQuest_config["showpartyobjectives"] == "0" then return end
-    if not playerName or playerName == UnitName("player") then return end
+-- Batch delete: one store scan for a whole inbound batch instead of one per
+-- quest. Same match rule as the single delete, OR-ed over every spec.
+local function DeletePartyQuestsNodes(specs, sender)
+    local pfMap = _G.pfMap
+    if not pfMap then return end
+    if pfMap.DeleteNode then
+        for _, spec in ipairs(specs) do
+            if spec.nodeTitle then pfMap:DeleteNode("PARTY", spec.nodeTitle) end
+            if spec.qTitle then pfMap:DeleteNode("PARTY", spec.qTitle) end
+        end
+    end
+    if pfMap.DeleteNodesWhere then
+        pfMap:DeleteNodesWhere("PARTY", function(title, node)
+            if sender and node.partyMember ~= sender then return false end
+            for _, spec in ipairs(specs) do
+                if (not spec.qidRaw) or node.questid == spec.qidRaw
+                    or (spec.numQId and node.questid == spec.numQId)
+                    or node.quest == spec.qTitle
+                    or title == spec.nodeTitle or title == spec.qTitle then
+                    return true
+                end
+            end
+            return false
+        end)
+    end
+end
 
+-- Resolve a quest id/title pair the way the map push needs it. Shared by the
+-- single-quest path and the batch path so they can never disagree.
+local function ResolveQuestSpec(questId, questTitle)
     local numQId = tonumber(questId)
     local pfDB = _G.pfDB
     local qTitle = questTitle
@@ -79,68 +109,90 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
     end
     if not qTitle and type(questId) == "string" then qTitle = questId end
     if not qTitle and numQId then qTitle = "Quest " .. tostring(numQId) end
-    if not qTitle then return end
+    if not qTitle then return nil end
     if not qId and pfDB and pfDB.quests and pfDB.quests.loc and qTitle then
         for id, data in pairs(pfDB.quests.loc) do
             if data and data.T == qTitle then qId = tonumber(id) or id break end
         end
     end
+    return qTitle, qId, numQId
+end
 
-    if pfQuest and (pfQuest:HasQuest(questId) or pfQuest:HasQuest(qId) or pfQuest:HasQuest(qTitle)) then
+local function PartyPushAllowed(playerName)
+    if not IsInGroup() or not IsSyncEnabled() then return false end
+    if pfQuest_config and pfQuest_config["showpartyobjectives"] == "0" then return false end
+    if not playerName or playerName == UnitName("player") then return false end
+    return true
+end
+
+local function OwnsQuest(questId, qId, qTitle)
+    return pfQuest and (pfQuest:HasQuest(questId) or pfQuest:HasQuest(qId) or pfQuest:HasQuest(qTitle))
+end
+
+-- Finished-target blacklist for one quest/player. Shared by single and batch adds.
+local function ComputePartyDone(qTitle, qId, playerName)
+    local partyDone = nil
+    local targets = partyQuestData and partyQuestData[playerName]
+    if targets then
+        for targetName, list in pairs(targets) do
+            local tAny, tDone = false, true
+            for _, data in ipairs(list) do
+                if data.quest == qTitle and (not qId or not data.questId or data.questId == qId) then
+                    tAny = true
+                    if not (data.total and data.total >= 1 and data.current and data.current >= data.total) then
+                        tDone = false
+                    end
+                end
+            end
+            if tAny and tDone then
+                partyDone = partyDone or {}
+                partyDone[targetName] = true
+            end
+        end
+    end
+    return partyDone
+end
+
+-- Add-half of the map push: pins only, no delete, no redraw. Returns true
+-- when pins were drawn. Defined before the wrapper: Lua resolves the
+-- upvalue at compile time, so a later local would read as a global.
+local function AddPartyQuestNodes(qId, qTitle, playerName, partyDone)
+    local pfDatabase = _G.pfDatabase
+    if not (_G.pfMap and pfDatabase and pfDatabase.SearchQuestID and qId) then return false end
+    pfDatabase:SearchQuestID(qId, {
+        addon = "PARTY",
+        partyMember = playerName,
+        title = qTitle .. " (" .. playerName .. ")",
+        quest = qTitle,
+        questid = qId,
+        color = playerName,
+        partyDone = partyDone,
+    })
+    return true
+end
+
+local function UpdatePartyMapNodes(questId, playerName, questTitle)
+    if not PartyPushAllowed(playerName) then return end
+
+    local qTitle, qId = ResolveQuestSpec(questId, questTitle)
+    if not qTitle then return end
+
+    if OwnsQuest(questId, qId, qTitle) then
         DeletePartyQuestNodes(questId or qTitle, playerName)
         return
     end
 
-    local nodeTitle = qTitle .. " (" .. playerName .. ")"
-
-    -- Party completion comes from the sender's live progress, never from our
-    -- log: without it every party ender would render the gold turn-in marker.
-    local partyComplete = false
-    local partyDone = nil
-    do
-        local known = false
-        local done = true
-        local targets = partyQuestData and partyQuestData[playerName]
-        if targets then
-            for targetName, list in pairs(targets) do
-                local tAny, tDone = false, true
-                for _, data in ipairs(list) do
-                    if data.quest == qTitle and (not qId or not data.questId or data.questId == qId) then
-                        known = true
-                        tAny = true
-                        if not (data.total and data.total >= 1 and data.current and data.current >= data.total) then
-                            done = false
-                            tDone = false
-                        end
-                    end
-                end
-                if tAny and tDone then
-                    partyDone = partyDone or {}
-                    partyDone[targetName] = true
-                end
-            end
-        end
-        if known then partyComplete = done end
-    end
+    -- Objectives only: finished targets are blacklisted via partyDone so
+    -- DONE objectives never draw. Completion state is never shared.
+    local partyDone = ComputePartyDone(qTitle, qId, playerName)
 
     local pfMap = _G.pfMap
-    local pfDatabase = _G.pfDatabase
-    if pfMap and pfDatabase and pfDatabase.SearchQuestID and qId then
-        DeletePartyQuestNodes(questId or qTitle, playerName)
-        local meta = {
-            addon = "PARTY",
-            partyMember = playerName,
-            title = nodeTitle,
-            quest = qTitle,
-            questid = qId,
-            color = playerName,
-            partyComplete = partyComplete,
-            partyDone = partyDone,
-        }
-        pfDatabase:SearchQuestID(qId, meta)
+    DeletePartyQuestNodes(questId or qTitle, playerName)
+    if AddPartyQuestNodes(qId, qTitle, playerName, partyDone) and pfMap then
         pfMap:RequestUpdate()
     end
 end
+
 
 local myQuestMappings = {}
 
@@ -207,7 +259,7 @@ end
 
 local function RebuildQuestMappings()
     if debugMode then
-        print("|cff33ffccpfQuest-epoch:|r REBUILD - Checking pfDB...")
+        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Checking pfDB...")
         print("  pfDB exists: " .. tostring(pfDB ~= nil))
         if pfDB then
             print("  pfDB type: " .. type(pfDB))
@@ -222,28 +274,28 @@ local function RebuildQuestMappings()
 
     if not pfDB or not pfDB["quests"] or not pfDB["quests"]["data"] then
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r REBUILD - pfDB not available")
+            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - pfDB not available")
         end
         return
     end
 
     if debugMode then
-        print("|cff33ffccpfQuest-epoch:|r REBUILD - Starting quest mapping rebuild")
+        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Starting quest mapping rebuild")
     end
 
     local activeQuests = GetLogObjectives()
     if debugMode then
         for questTitle, objectives in pairs(activeQuests) do
-            print("|cff33ffccpfQuest-epoch:|r REBUILD - Found quest: " .. questTitle .. " with " .. table.getn(objectives) .. " objectives")
+            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found quest: " .. questTitle .. " with " .. table.getn(objectives) .. " objectives")
             for _, o in ipairs(objectives) do
-                print("|cff33ffccpfQuest-epoch:|r REBUILD - Objective: " .. o.objective .. " (" .. o.current .. "/" .. o.total .. ")")
+                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Objective: " .. o.objective .. " (" .. o.current .. "/" .. o.total .. ")")
             end
         end
     end
 
     if not GetDBLoc("quests") then
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r REBUILD - No enUS localization table found")
+            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - No enUS localization table found")
         end
         return
     end
@@ -253,31 +305,31 @@ local function RebuildQuestMappings()
 
         if questTitle and activeQuests[questTitle] then
             if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r REBUILD - Matching quest: " .. questTitle .. " (ID: " .. questId .. ")")
+                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Matching quest: " .. questTitle .. " (ID: " .. questId .. ")")
             end
 
             local questData = pfDB["quests"]["data"][questId]
             if questData and questData["obj"] then
                 if debugMode then
-                    print("|cff33ffccpfQuest-epoch:|r REBUILD - Quest has obj table")
+                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Quest has obj table")
                 end
 
                 if questData["obj"]["U"] then
                     for _, unitId in pairs(questData["obj"]["U"]) do
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r REBUILD - Found unit objective: Unit ID " .. tostring(unitId))
+                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found unit objective: Unit ID " .. tostring(unitId))
                         end
 
                         if GetDBLoc("units") and GetDBLoc("units")[unitId] then
                             local targetName = GetDBLoc("units")[unitId]
 
                             if debugMode then
-                                print("|cff33ffccpfQuest-epoch:|r REBUILD - Unit name: " .. targetName)
+                                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Unit name: " .. targetName)
                             end
 
                             for _, activeObj in ipairs(activeQuests[questTitle]) do
                                 if debugMode then
-                                    print("|cff33ffccpfQuest-epoch:|r REBUILD - Checking if quest log objective matches...")
+                                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Checking if quest log objective matches...")
                                     print("    Quest log: \"" .. activeObj.objective .. "\"")
                                     print("    Target name: \"" .. targetName .. "\"")
                                 end
@@ -314,7 +366,7 @@ local function RebuildQuestMappings()
                                     end
 
                                     if debugMode then
-                                        print("|cff33ffccpfQuest-epoch:|r REBUILD - Added " .. targetName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
+                                        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Added " .. targetName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
                                     end
                                 end
                             end
@@ -325,7 +377,7 @@ local function RebuildQuestMappings()
                 if questData["obj"]["I"] then
                     for _, itemId in pairs(questData["obj"]["I"]) do
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r REBUILD - Found item objective: Item ID " .. tostring(itemId))
+                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found item objective: Item ID " .. tostring(itemId))
                         end
 
                         local itemName = nil
@@ -333,7 +385,7 @@ local function RebuildQuestMappings()
                             itemName = GetDBLoc("items")[itemId]
 
                             if debugMode then
-                                print("|cff33ffccpfQuest-epoch:|r REBUILD - Item name: " .. itemName)
+                                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Item name: " .. itemName)
                             end
                         end
 
@@ -346,7 +398,7 @@ local function RebuildQuestMappings()
                                         local npcName = GetDBLoc("units")[unitId]
 
                                         if debugMode then
-                                            print("|cff33ffccpfQuest-epoch:|r REBUILD - NPC " .. npcName .. " drops " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
+                                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - NPC " .. npcName .. " drops " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
                                         end
 
                                         for _, activeObj in ipairs(activeQuests[questTitle]) do
@@ -383,7 +435,7 @@ local function RebuildQuestMappings()
                                                 end
 
                                                 if debugMode then
-                                                    print("|cff33ffccpfQuest-epoch:|r REBUILD - Mapped NPC " .. npcName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
+                                                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Mapped NPC " .. npcName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
                                                 end
                                             end
                                         end
@@ -397,7 +449,7 @@ local function RebuildQuestMappings()
                                         local objName = GetDBLoc("objects")[objectId]
 
                                         if debugMode then
-                                            print("|cff33ffccpfQuest-epoch:|r REBUILD - Object " .. objName .. " contains " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
+                                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Object " .. objName .. " contains " .. (itemName or "item " .. itemId) .. " (" .. dropRate .. "%)")
                                         end
 
                                         for _, activeObj in ipairs(activeQuests[questTitle]) do
@@ -434,7 +486,7 @@ local function RebuildQuestMappings()
                                                 end
 
                                                 if debugMode then
-                                                    print("|cff33ffccpfQuest-epoch:|r REBUILD - Mapped object " .. objName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
+                                                    print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Mapped object " .. objName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ")")
                                                 end
                                             end
                                         end
@@ -448,14 +500,14 @@ local function RebuildQuestMappings()
                 if questData["obj"]["O"] then
                     for _, objectId in pairs(questData["obj"]["O"]) do
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r REBUILD - Found object objective: Object ID " .. tostring(objectId))
+                            print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Found object objective: Object ID " .. tostring(objectId))
                         end
 
                         if GetDBLoc("objects") and GetDBLoc("objects")[objectId] then
                             local objectName = GetDBLoc("objects")[objectId]
 
                             if debugMode then
-                                print("|cff33ffccpfQuest-epoch:|r REBUILD - Object name: " .. objectName)
+                                print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Object name: " .. objectName)
                             end
 
                             for _, activeObj in ipairs(activeQuests[questTitle]) do
@@ -490,7 +542,7 @@ local function RebuildQuestMappings()
                                     end
 
                                     if debugMode then
-                                        print("|cff33ffccpfQuest-epoch:|r REBUILD - Added " .. objectName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
+                                        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Added " .. objectName .. " -> " .. questTitle .. " (" .. activeObj.objective .. ": " .. activeObj.current .. "/" .. activeObj.total .. ")")
                                     end
                                 end
                             end
@@ -504,13 +556,13 @@ local function RebuildQuestMappings()
     if debugMode then
         local count = 0
         for _ in pairs(myQuestMappings) do count = count + 1 end
-        print("|cff33ffccpfQuest-epoch:|r REBUILD - Complete. Total target mappings: " .. count)
+        print("|cff33ffccpf|cffffffffQuest:|r REBUILD - Complete. Total target mappings: " .. count)
     end
 end
 
 local function CaptureMyQuestData(targetKey, questTitle, objectiveText, current, total)
     if debugMode then
-        print("|cff33ffccpfQuest-epoch:|r CAPTURE - Key: " .. tostring(targetKey) .. ", Quest: " .. tostring(questTitle) .. ", Obj: " .. tostring(objectiveText) .. ", Progress: " .. current .. "/" .. total)
+        print("|cff33ffccpf|cffffffffQuest:|r CAPTURE - Key: " .. tostring(targetKey) .. ", Quest: " .. tostring(questTitle) .. ", Obj: " .. tostring(objectiveText) .. ", Progress: " .. current .. "/" .. total)
     end
 
     if not myQuestMappings[targetKey] then
@@ -537,12 +589,59 @@ local function CaptureMyQuestData(targetKey, questTitle, objectiveText, current,
     end
 end
 
+-- Tooltip entry point: fold the hovered target's own-log objectives into our
+-- outbound mappings so the pins we share stay warm. Display passes meta in;
+-- party owns the mutation.
+local function CaptureTooltipTarget(meta, tooltipName, targetKey)
+    if not (meta and meta["quest"] and targetKey) then return end
+    if not (IsInGroup() and IsTooltipEnabled()) then return end
+    local cached = GetLogObjectives()[meta["quest"]]
+    if not cached then return end
+    for _, obj in ipairs(cached) do
+        if string.len(obj.objective) > 0 then
+            CaptureMyQuestData(targetKey, meta["quest"], obj.objective, obj.current, obj.total)
+            if tooltipName and tooltipName ~= targetKey then
+                CaptureMyQuestData(tooltipName, meta["quest"], obj.objective, obj.current, obj.total)
+            end
+        end
+    end
+end
+
 local function BuildStateString(targetKey, questData)
     return string.format("%s:%s:%d:%d",
         targetKey,
         questData.quest,
         questData.current,
         questData.total)
+end
+
+-- Check-key for the delta gate. Item objectives share one wire slot per
+-- quest+objective (max-progress merge), so they share one key too; otherwise
+-- a merged entry would re-broadcast every pass. Everything else keys on
+-- its own target.
+local function BroadcastCheckKey(targetKey, data)
+    if data.targetType == "I" and data.questId then
+        return "C" .. data.questId .. ":" .. (data.objective or "") .. ":" .. data.current .. ":" .. data.total
+    end
+    return BuildStateString(targetKey, data)
+end
+
+-- Drop entries whose quest left the log. Shared by our mappings and our mirror.
+local function PruneInactive(map, activeQuests)
+    for targetKey, quests in pairs(map) do
+        local i = 1
+        while i <= table.getn(quests) do
+            if not activeQuests[quests[i].quest] then
+                table.remove(quests, i)
+            else
+                i = i + 1
+            end
+        end
+
+        if table.getn(quests) == 0 then
+            map[targetKey] = nil
+        end
+    end
 end
 
 local function BroadcastQuestRemove(questId, questTitle)
@@ -600,7 +699,7 @@ local function ShareQuestData(forceFullSync)
                 SendAddonMessage("pfqe", msg, channel)
 
                 if debugMode then
-                    print("|cff33ffccpfQuest-epoch:|r REMOVE broadcast - Quest: " .. questTitle .. " (ID: " .. questId .. ")")
+                    print("|cff33ffccpf|cffffffffQuest:|r REMOVE broadcast - Quest: " .. questTitle .. " (ID: " .. questId .. ")")
                 end
             end
         end
@@ -608,19 +707,12 @@ local function ShareQuestData(forceFullSync)
 
     previousQuestList = activeQuests
 
-    for targetKey, quests in pairs(myQuestMappings) do
-        local i = 1
-        while i <= table.getn(quests) do
-            if not activeQuests[quests[i].quest] then
-                table.remove(quests, i)
-            else
-                i = i + 1
-            end
-        end
+    PruneInactive(myQuestMappings, activeQuests)
 
-        if table.getn(quests) == 0 then
-            myQuestMappings[targetKey] = nil
-        end
+    -- Own mirror must die with the quest too, or our tooltip outlives our log.
+    if myName and partyQuestData[myName] then
+        PruneInactive(partyQuestData[myName], activeQuests)
+        if next(partyQuestData[myName]) == nil then partyQuestData[myName] = nil end
     end
 
     for targetKey, quests in pairs(myQuestMappings) do
@@ -639,13 +731,15 @@ local function ShareQuestData(forceFullSync)
 
     local changedEntries = {}
     local consolidatedObjectives = {}
+    local sentKeys = {} -- check-keys covered by this pass (marked in the delta loop)
 
     for targetKey, quests in pairs(myQuestMappings) do
         for _, data in ipairs(quests) do
-            local stateKey = BuildStateString(targetKey, data)
+            local checkKey = BroadcastCheckKey(targetKey, data)
 
-            if forceFullSync or not lastBroadcastState[stateKey] then
+            if forceFullSync or not lastBroadcastState[checkKey] then
                 if data.questId and data.targetId and data.targetType then
+                    sentKeys[checkKey] = true -- covered below: it ships in this pass
 
                     if data.targetType == "I" then
                         local objKey = data.questId .. ":" .. data.objective
@@ -679,7 +773,7 @@ local function ShareQuestData(forceFullSync)
                     end
 
                     if debugMode then
-                        print("|cff33ffccpfQuest-epoch:|r DELTA - Changed: " .. targetKey .. " -> " .. data.quest .. " (" .. data.current .. "/" .. data.total .. ")")
+                        print("|cff33ffccpf|cffffffffQuest:|r DELTA - Changed: " .. targetKey .. " -> " .. data.quest .. " (" .. data.current .. "/" .. data.total .. ")")
                     end
                 end
             end
@@ -692,17 +786,16 @@ local function ShareQuestData(forceFullSync)
 
     if table.getn(changedEntries) == 0 then
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r BROADCAST - No changes, skipping")
+            print("|cff33ffccpf|cffffffffQuest:|r BROADCAST - No changes, skipping")
         end
         return
     end
 
     local messages = {}
     local currentBatch = "V1|"
-    local entriesInBatch = 0
 
     if debugMode then
-        print("|cff33ffccpfQuest-epoch:|r BROADCAST - Building batches for " .. table.getn(changedEntries) .. " changed entries")
+        print("|cff33ffccpf|cffffffffQuest:|r BROADCAST - Building batches for " .. table.getn(changedEntries) .. " changed entries")
     end
 
     for _, entry in ipairs(changedEntries) do
@@ -718,14 +811,12 @@ local function ShareQuestData(forceFullSync)
             table.insert(messages, currentBatch)
 
             if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r BATCH - Split at " .. entriesInBatch .. " entries (" .. string.len(currentBatch) .. " chars)")
+                print("BATCH split at " .. string.len(currentBatch) .. " chars")
             end
 
             currentBatch = "V1|" .. entryStr
-            entriesInBatch = 1
         else
             currentBatch = currentBatch .. entryStr
-            entriesInBatch = entriesInBatch + 1
         end
     end
 
@@ -734,31 +825,30 @@ local function ShareQuestData(forceFullSync)
     end
 
     if debugMode then
-        print("|cff33ffccpfQuest-epoch:|r BROADCAST - Sending " .. table.getn(messages) .. " batched message(s) to " .. channel)
+        print("|cff33ffccpf|cffffffffQuest:|r BROADCAST - Sending " .. table.getn(messages) .. " batched message(s) to " .. channel)
     end
 
     for i, msg in ipairs(messages) do
         SendAddonMessage("pfqe", msg, channel)
 
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r   Batch " .. i .. " (" .. string.len(msg) .. " chars): " .. msg)
+            print("|cff33ffccpf|cffffffffQuest:|r   Batch " .. i .. " (" .. string.len(msg) .. " chars): " .. msg)
         end
     end
 
-    -- Only keys that were actually sent count as broadcast. Entries skipped
-    -- for missing questId/targetId stay unsent so a later DB load retries them.
-    -- Stale keys for quests no longer active are dropped so progress can
-    -- re-broadcast cleanly if the quest is re-accepted later.
+    -- Only keys covered this pass count as broadcast. Skipped entries (no IDs
+    -- yet) stay absent so a later DB load retries them; stale keys for dead
+    -- quests drop out so re-accepted progress re-broadcasts cleanly.
+    local prevBroadcastState = lastBroadcastState
     lastBroadcastState = {}
     for targetKey, quests in pairs(myQuestMappings) do
         for _, data in ipairs(quests) do
-            lastBroadcastState[BuildStateString(targetKey, data)] = true
-        end
-    end
-    for _, entry in ipairs(changedEntries) do
-        if not entry.targetKey then
-            lastBroadcastState[BuildStateString(" consolidated ", {
-                quest = entry.quest, current = entry.current, total = entry.total })] = true
+            local checkKey = BroadcastCheckKey(targetKey, data)
+            if sentKeys[checkKey] then
+                lastBroadcastState[checkKey] = true
+            elseif prevBroadcastState[checkKey] and data.questId and data.targetId and data.targetType then
+                lastBroadcastState[checkKey] = true
+            end
         end
     end
 
@@ -805,6 +895,7 @@ local MAX_OBJECTIVES_PER_TARGET = 40
 
 local function SanitizePartyString(s, maxLen)
     if not s then return nil end
+
     -- Strip chat/tooltip markup so a hostile peer cannot smuggle
     -- clickable links or color codes into GameTooltip lines.
     s = string.gsub(s, "|[cCHhTtRr]", "")
@@ -889,7 +980,7 @@ local function ProcessQuestData(sender, message)
     removeQuestTitle = SanitizePartyString(removeQuestTitle, MAX_QUEST_TITLE_LEN) or ""
     if removeQuestId and removeQuestTitle then
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r REMOVEQ from " .. sender .. " - Quest: " .. removeQuestTitle .. " (ID: " .. removeQuestId .. ")")
+            print("|cff33ffccpf|cffffffffQuest:|r REMOVEQ from " .. sender .. " - Quest: " .. removeQuestTitle .. " (ID: " .. removeQuestId .. ")")
         end
 
         if partyQuestData[sender] then
@@ -900,7 +991,7 @@ local function ProcessQuestData(sender, message)
                     if entry.quest == removeQuestTitle and (not entry.questId or entry.questId == tonumber(removeQuestId)) then
                         table.remove(quests, i)
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Removed from " .. targetKey)
+                            print("|cff33ffccpf|cffffffffQuest:|r   Removed from " .. targetKey)
                         end
                     else
                         i = i + 1
@@ -926,7 +1017,7 @@ local function ProcessQuestData(sender, message)
     local removeTarget, removeQuest = string.match(message, "^REMOVE:([^:]+):(.+)$")
     if removeTarget and removeQuest then
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r REMOVE from " .. sender .. " - Key: " .. removeTarget .. ", Quest: " .. removeQuest)
+            print("|cff33ffccpf|cffffffffQuest:|r REMOVE from " .. sender .. " - Key: " .. removeTarget .. ", Quest: " .. removeQuest)
         end
 
         if partyQuestData[sender] and partyQuestData[sender][removeTarget] then
@@ -953,7 +1044,7 @@ local function ProcessQuestData(sender, message)
         local batch = string.sub(message, 4)
 
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r RECEIVE V1 batch from " .. sender .. " (" .. string.len(message) .. " chars)")
+            print("|cff33ffccpf|cffffffffQuest:|r RECEIVE V1 batch from " .. sender .. " (" .. string.len(message) .. " chars)")
         end
 
         local entries = {}
@@ -979,7 +1070,7 @@ local function ProcessQuestData(sender, message)
 
                 if not IsValidProgress(current, total) then
                     if debugMode then
-                        print("|cff33ffccpfQuest-epoch:|r rejected out-of-range V1 entry: " .. tostring(entry))
+                        print("|cff33ffccpf|cffffffffQuest:|r rejected out-of-range V1 entry: " .. tostring(entry))
                     end
                 else
                 local questTitle = nil
@@ -1019,7 +1110,7 @@ local function ProcessQuestData(sender, message)
                         local itemData = pfDB["items"]["data"][targetId]
 
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Expanding item quest - Item ID: " .. targetId)
+                            print("|cff33ffccpf|cffffffffQuest:|r   Expanding item quest - Item ID: " .. targetId)
                         end
 
                         if itemData["U"] then
@@ -1032,7 +1123,7 @@ local function ProcessQuestData(sender, message)
                             end
 
                             if debugMode then
-                                print("|cff33ffccpfQuest-epoch:|r   Expanded to " .. npcCount .. " NPCs for item " .. targetId)
+                                print("|cff33ffccpf|cffffffffQuest:|r   Expanded to " .. npcCount .. " NPCs for item " .. targetId)
                             end
                         end
 
@@ -1045,7 +1136,7 @@ local function ProcessQuestData(sender, message)
                         end
                     else
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Failed to expand item quest - Item ID " .. targetId .. " not found in database")
+                            print("|cff33ffccpf|cffffffffQuest:|r   Failed to expand item quest - Item ID " .. targetId .. " not found in database")
                         end
                     end
                 elseif targetType == "U" then
@@ -1056,12 +1147,12 @@ local function ProcessQuestData(sender, message)
 
                     if targetName and questTitle then
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Parsed: U" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
+                            print("|cff33ffccpf|cffffffffQuest:|r   Parsed: U" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
                         end
                         StorePartyObjective(sender, targetName, questId, questTitle, objectiveText, current, total)
                     else
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Failed to resolve: U" .. targetId .. "Q" .. questId)
+                            print("|cff33ffccpf|cffffffffQuest:|r   Failed to resolve: U" .. targetId .. "Q" .. questId)
                         end
                     end
                 elseif targetType == "O" then
@@ -1072,25 +1163,50 @@ local function ProcessQuestData(sender, message)
 
                     if targetName and questTitle then
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Parsed: O" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
+                            print("|cff33ffccpf|cffffffffQuest:|r   Parsed: O" .. targetId .. "Q" .. questId .. " -> " .. targetName .. ": " .. questTitle .. " (" .. current .. "/" .. total .. ")")
                         end
                         StorePartyObjective(sender, targetName, questId, questTitle, objectiveText, current, total)
                     else
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r   Failed to resolve: O" .. targetId .. "Q" .. questId)
+                            print("|cff33ffccpf|cffffffffQuest:|r   Failed to resolve: O" .. targetId .. "Q" .. questId)
                         end
                     end
                 end
                 end
             else
                 if debugMode then
-                    print("|cff33ffccpfQuest-epoch:|r   Failed to parse entry: " .. entry)
+                    print("|cff33ffccpf|cffffffffQuest:|r   Failed to parse entry: " .. entry)
                 end
             end
         end
 
-        for questId, questTitle in pairs(touchedQuests) do
-            UpdatePartyMapNodes(questId, sender, questTitle)
+        -- One delete scan for the whole batch, then per-quest adds, one redraw.
+        if PartyPushAllowed(sender) and next(touchedQuests) then
+            local specs = {}
+            for questId, questTitle in pairs(touchedQuests) do
+                local qTitle, qId, numQId = ResolveQuestSpec(questId, questTitle)
+                if qTitle then
+                    table.insert(specs, {
+                        qidRaw = questId,
+                        qTitle = qTitle,
+                        qId = qId,
+                        numQId = numQId,
+                        nodeTitle = qTitle .. " (" .. sender .. ")",
+                    })
+                end
+            end
+            if table.getn(specs) > 0 then
+                DeletePartyQuestsNodes(specs, sender)
+                local added, pfMap = false, _G.pfMap
+                for _, spec in ipairs(specs) do
+                    if OwnsQuest(spec.qidRaw, spec.qId, spec.qTitle) then
+                        DeletePartyQuestNodes(spec.qidRaw or spec.qTitle, sender)
+                    elseif AddPartyQuestNodes(spec.qId, spec.qTitle, sender, ComputePartyDone(spec.qTitle, spec.qId, sender)) then
+                        added = true
+                    end
+                end
+                if added and pfMap then pfMap:RequestUpdate() end
+            end
         end
 
         return
@@ -1104,24 +1220,24 @@ local function ProcessQuestData(sender, message)
     local tailHead, current, total = ParseColonTail(message)
     if not tailHead then
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r QUEST parse: no trailing counts in (" .. string.len(message) .. " chars)")
+            print("|cff33ffccpf|cffffffffQuest:|r QUEST parse: no trailing counts in (" .. string.len(message) .. " chars)")
         end
         return
     end
     local targetName, questTitle, objective = ParseQuestSpec(tailHead)
     if (not targetName) and debugMode then
-        print("|cff33ffccpfQuest-epoch:|r QUEST parse failed for: " .. tostring(tailHead))
+        print("|cff33ffccpf|cffffffffQuest:|r QUEST parse failed for: " .. tostring(tailHead))
     end
 
     if targetName and questTitle and objective and current and total then
         if not IsValidProgress(current, total) then
             if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r rejected out-of-range QUEST progress: " .. current .. "/" .. total)
+                print("|cff33ffccpf|cffffffffQuest:|r rejected out-of-range QUEST progress: " .. current .. "/" .. total)
             end
             return
         end
         if debugMode then
-            print("|cff33ffccpfQuest-epoch:|r RECEIVE from " .. sender .. " - Key: " .. targetName .. ", Quest: " .. questTitle .. ", Progress: " .. current .. "/" .. total)
+            print("|cff33ffccpf|cffffffffQuest:|r RECEIVE from " .. sender .. " - Key: " .. targetName .. ", Quest: " .. questTitle .. ", Progress: " .. current .. "/" .. total)
         end
 
         StorePartyObjective(sender, targetName, nil, questTitle, objective, current, total)
@@ -1139,188 +1255,6 @@ local function ProcessQuestData(sender, message)
         UpdatePartyMapNodes(legacyQuestId, sender, questTitle)
     end
 end
-
-local function GetClassColor(playerName)
-    -- self first (no break: a nameless class falls through to group scan,
-    -- same as before), then raid or party members in unit order.
-    local units = { "player" }
-    local numRaid = GetNumRaidMembers and GetNumRaidMembers() or 0
-    if numRaid > 0 then
-        for i = 1, numRaid do units[table.getn(units) + 1] = "raid" .. i end
-    else
-        for i = 1, (GetNumPartyMembers and GetNumPartyMembers() or 0) do
-            units[table.getn(units) + 1] = "party" .. i
-        end
-    end
-    for _, unit in ipairs(units) do
-        if UnitName(unit) == playerName then
-            local _, class = UnitClass(unit)
-            if class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
-                local c = RAID_CLASS_COLORS[class]
-                return { c.r, c.g, c.b }
-            end
-            if unit ~= "player" then break end
-        end
-    end
-    return { 1.0, 1.0, 1.0 }
-end
-
--- One grouping/dedupe pass over partyQuestData for a single target.
--- Both tooltip hooks share it so they can never render different lines.
-local function BuildQuestGroups(targetKey)
-    local questGroups = {}
-    for playerName, targets in pairs(partyQuestData) do
-        if targets[targetKey] then
-            for _, data in ipairs(targets[targetKey]) do
-                local group = questGroups[data.quest]
-                if not group then
-                    group = {}
-                    questGroups[data.quest] = group
-                end
-                local isDuplicate = false
-                for _, existing in ipairs(group) do
-                    if existing.player == playerName and existing.objective == data.objective then
-                        existing.current = data.current
-                        existing.total = data.total
-                        isDuplicate = true
-                        break
-                    end
-                end
-                if not isDuplicate then
-                    table.insert(group, {
-                        player = playerName,
-                        objective = data.objective,
-                        current = data.current,
-                        total = data.total
-                    })
-                end
-            end
-        end
-    end
-    return questGroups
-end
-
--- Shared renderer: [!] quest header plus one class-colored line per
--- member with a red-yellow-green progress ramp. Skips empty groups
--- instead of printing bare spacer lines.
-local function AppendPartyLines(tooltip, questGroups)
-    if not next(questGroups) then return end
-    tooltip:AddLine(" ")
-    for questName, lines in pairs(questGroups) do
-        tooltip:AddLine("|cff555555[|cffffcc00!|cff555555]|r " .. questName, 1, 1, 0)
-        for _, line in ipairs(lines) do
-            local classColor = GetClassColor(line.player)
-            local perc = line.current / line.total
-            local r, g
-            if perc <= 0.5 then
-                r, g = 1, perc * 2
-            else
-                r, g = 2 - perc * 2, 1
-            end
-            local coloredName = string.format("|cFF%02x%02x%02x%s|r",
-                classColor[1] * 255, classColor[2] * 255, classColor[3] * 255, line.player)
-            tooltip:AddLine(string.format("|cffaaaaaa- |r%s: %s (%d/%d)",
-                coloredName, line.objective, line.current, line.total), r, g, 0)
-        end
-    end
-    tooltip:AddLine(" ")
-    tooltip:Show()
-end
-
-local function HookGameTooltip()
-    GameTooltip:HookScript("OnTooltipSetUnit", function(self)
-        local unitName, unit = self:GetUnit()
-        if not unitName or not unit then return end
-        if UnitIsPlayer(unit) then return end
-
-        if not IsInGroup() or not IsTooltipEnabled() then return end
-
-        AppendPartyLines(self, BuildQuestGroups(unitName))
-    end)
-
-    return true
-end
-
-local function HookPfQuestTooltip()
-    if not pfMap or not pfMap.ShowTooltip then
-        return false
-    end
-
-    if not pfQuestCompat then
-        return false
-    end
-
-    -- Wrap through map's sanctioned seam instead of overwriting its method.
-    pfMap:SetTooltipHook(function(orig, self, meta, tooltip)
-
-        tooltip = tooltip or GameTooltip
-
-        local targetKey = meta.spawn or meta.title
-
-        local tooltipName = nil
-        local tooltipText = _G["GameTooltipTextLeft1"]
-        if tooltipText and tooltipText:GetText() then
-            tooltipName = tooltipText:GetText()
-        end
-
-        local inParty = IsInGroup()
-        local featureEnabled = IsTooltipEnabled()
-
-        if meta["quest"] and inParty and featureEnabled and targetKey then
-            local cached = GetLogObjectives()[meta["quest"]]
-            if cached then
-                for _, obj in ipairs(cached) do
-                    if string.len(obj.objective) > 0 then
-                        CaptureMyQuestData(targetKey, meta["quest"], obj.objective, obj.current, obj.total)
-                        if tooltipName and tooltipName ~= targetKey then
-                            CaptureMyQuestData(tooltipName, meta["quest"], obj.objective, obj.current, obj.total)
-                        end
-                    end
-                end
-            end
-        end
-
-        local hasPartyData = false
-        local matchedKey = nil
-
-        if inParty and featureEnabled then
-            if targetKey then
-                for playerName, targets in pairs(partyQuestData) do
-                    if targets[targetKey] then
-                        hasPartyData = true
-                        matchedKey = targetKey
-                        break
-                    end
-                end
-            end
-
-            if not hasPartyData and tooltipName then
-                for playerName, targets in pairs(partyQuestData) do
-                    if targets[tooltipName] then
-                        hasPartyData = true
-                        matchedKey = tooltipName
-                        break
-                    end
-                end
-            end
-        end
-
-        if hasPartyData and matchedKey then
-            orig(self, meta, tooltip)
-
-            if not select(2, tooltip:GetUnit()) then
-                AppendPartyLines(tooltip, BuildQuestGroups(matchedKey))
-            end
-
-            tooltip:Show()
-        else
-            orig(self, meta, tooltip)
-        end
-    end)
-
-    return true
-end
-
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("CHAT_MSG_ADDON")
 eventFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
@@ -1343,7 +1277,7 @@ local function IsTrustedSender(sender, channel)
     local myName = UnitName and UnitName("player")
     local clean = string.match(sender, "^([^-]+)") or sender
     if myName and (sender == myName or clean == myName) then return false end
-    if channel ~= "PARTY" and channel ~= "RAID" then return false end
+    if channel ~= "PARTY" then return false end -- we only ever send PARTY
     if GetNumRaidMembers and GetNumRaidMembers() > 0 then
         if UnitInRaid then
             return UnitInRaid(sender) ~= nil
@@ -1382,11 +1316,11 @@ local function HandlePfqeMessage(sender, message)
             if table.getn(queued) >= MAX_QUEUED_BATCHES then table.remove(queued, 1) end
             table.insert(queued, message)
             if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r inbound batch from " .. tostring(sender) .. " queued")
+                print("|cff33ffccpf|cffffffffQuest:|r inbound batch from " .. tostring(sender) .. " queued")
             end
         end
     elseif debugMode then
-        print("|cff33ffccpfQuest-epoch:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
+        print("|cff33ffccpf|cffffffffQuest:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
     end
 end
 
@@ -1489,22 +1423,16 @@ eventFrame:SetScript("OnUpdate", function()
     PumpSyncTimers()
 end)
 
-local function ExtendPfQuestConfig()
-    return true
-end
-
 local configExtenderFrame = CreateFrame("Frame")
 configExtenderFrame:RegisterEvent("ADDON_LOADED")
 configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
     if addonName == "pfQuest-epoch" or addonName == "pfQuest-Reborn" then
         -- (config defaults already applied by config.lua)
 
-        HookGameTooltip()
-
         if IsInGroup() and IsSyncEnabled() then
             RebuildQuestMappings()
             if debugMode then
-                print("|cff33ffccpfQuest-epoch:|r Addon loaded, rebuilding and sharing")
+                print("|cff33ffccpf|cffffffffQuest:|r Addon loaded, rebuilding and sharing")
             end
             ShareQuestData(true)
         end
@@ -1519,168 +1447,31 @@ configExtenderFrame:SetScript("OnEvent", function(self, event, addonName)
                     rebuildRetries = rebuildRetries + 1
                     if pfDB and pfDB["quests"] and pfDB["quests"]["data"] then
                         if debugMode then
-                            print("|cff33ffccpfQuest-epoch:|r pfDB now available, rebuilding quest mappings")
+                            print("|cff33ffccpf|cffffffffQuest:|r pfDB now available, rebuilding quest mappings")
                         end
                         RebuildQuestMappings()
                         if IsInGroup() and IsSyncEnabled() then
                             ShareQuestData(true)
                         end
+                        self:SetScript("OnUpdate", nil)
+                        self:UnregisterAllEvents()
                     end
                 end
             end
 
-            if timer > 10 then
-                if ExtendPfQuestConfig() and HookPfQuestTooltip() then
-                    self:SetScript("OnUpdate", nil)
-                    self:UnregisterAllEvents()
-                elseif timer > 300 then
-                    self:SetScript("OnUpdate", nil)
-                    self:UnregisterAllEvents()
-                end
+            if timer > 300 then
+                self:SetScript("OnUpdate", nil)
+                self:UnregisterAllEvents()
             end
         end)
     end
 end)
 
-SlashCmdList = SlashCmdList or {}
-SLASH_PFQUESTDEBUG1 = "/pfqd"
-SlashCmdList["PFQUESTDEBUG"] = function(msg)
-    if not debugMode then
-        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
-        return
-    end
-    print("|cff33ffccpfQuest-epoch Debug:|r")
-    print("=== Addon Status ===")
-    print("pfQuest loaded: " .. tostring(IsAddOnLoaded("pfQuest")))
-    print("pfQuest-epoch loaded: " .. tostring(IsAddOnLoaded("pfQuest-epoch")))
-    print("pfDB exists: " .. tostring(pfDB ~= nil))
-    if pfDB then
-        print("  pfDB.quests exists: " .. tostring(pfDB.quests ~= nil))
-        if pfDB.quests then
-            print("  pfDB.quests.data exists: " .. tostring(pfDB.quests.data ~= nil))
-        end
-    end
-    print("pfQuestCompat exists: " .. tostring(pfQuestCompat ~= nil))
-    print("pfMap exists: " .. tostring(pfMap ~= nil))
-
-    print("=== Party Status ===")
-    print("Party members: " .. (GetNumPartyMembers and GetNumPartyMembers() or 0))
-    print("Feature enabled: " .. tostring(IsTooltipEnabled()))
-
-    print("=== Quest Data ===")
-    local count = 0
-    for _ in pairs(myQuestMappings) do count = count + 1 end
-    print("myQuestMappings targets: " .. count)
-
-    for targetKey, quests in pairs(myQuestMappings) do
-        print("  |cffffcc00Target:|r " .. targetKey)
-        for _, data in ipairs(quests) do
-            print("    - " .. data.quest .. ": " .. data.objective .. " (" .. data.current .. "/" .. data.total .. ")")
-        end
-    end
-
-    local partyCount = 0
-    for _ in pairs(partyQuestData) do partyCount = partyCount + 1 end
-    print("partyQuestData players: " .. partyCount)
-
-    for playerName, targets in pairs(partyQuestData) do
-        print("  |cff00ff00Player:|r " .. playerName)
-        for targetKey, quests in pairs(targets) do
-            print("    |cffffcc00Target:|r " .. targetKey)
-            for _, data in ipairs(quests) do
-                print("      - " .. data.quest .. ": " .. data.objective .. " (" .. data.current .. "/" .. data.total .. ")")
-            end
-        end
-    end
-
-    if count == 0 and partyCount == 0 then
-        print("|cffff0000No quest data found!|r Try killing a quest mob or running /pfqd after joining a party.")
-    end
-end
-
-SLASH_PFQUEREBUILD1 = "/pfqrebuild"
-SlashCmdList["PFQUEREBUILD"] = function(msg)
-    if not debugMode then
-        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
-        return
-    end
-    print("|cff33ffccpfQuest-epoch:|r Manually triggering RebuildQuestMappings...")
-    RebuildQuestMappings()
-    if IsInGroup() and IsSyncEnabled() then
-        print("|cff33ffccpfQuest-epoch:|r Sharing data...")
-        ShareQuestData(true)
-    end
-    print("|cff33ffccpfQuest-epoch:|r Done! Run /pfqd to see results.")
-end
-
-SLASH_PFQUESTFIND1 = "/pfqfind"
-SlashCmdList["PFQUESTFIND"] = function(msg)
-    if not debugMode then
-        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
-        return
-    end
-    print("|cff33ffccpfQuest-epoch:|r Checking pfDB structure...")
-
-    if not pfDB then
-        print("  |cffff0000pfDB does not exist!|r")
-        return
-    end
-
-    print("  pfDB exists: |cff00ff00YES|r")
-    print("  pfDB contains:")
-    for k, v in pairs(pfDB) do
-        if type(v) == "table" then
-            local count = 0
-            for _ in pairs(v) do
-                count = count + 1
-                if count > 1000 then break end
-            end
-            if k == "data" then
-                print("    - " .. k .. " (table with " .. count .. "+ entries)")
-            else
-                print("    - " .. k .. " (table)")
-            end
-        end
-    end
-end
-
-SLASH_PFQUESTAPI1 = "/pfqapi"
-SlashCmdList["PFQUESTAPI"] = function(msg)
-    if not debugMode then
-        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
-        return
-    end
-    print("|cff33ffccpfQuest-epoch:|r Checking pfQuest API...")
-    if pfDB and pfDB.quests and pfDB.quests.data and pfDB.quests.data[7] then
-        print("\nQuest ID 7 full structure:")
-        for k, v in pairs(pfDB.quests.data[7]) do
-            if type(v) == "table" then
-                print("  [\"" .. tostring(k) .. "\"] = {")
-                for k2, v2 in pairs(v) do
-                    print("    [\"" .. tostring(k2) .. "\"] = " .. tostring(v2))
-                end
-                print("  }")
-            else
-                print("  [\"" .. tostring(k) .. "\"] = " .. tostring(v))
-            end
-        end
-    end
-
-    print("\npfDB.quests keys:")
-    if pfDB and pfDB.quests then
-        for k, v in pairs(pfDB.quests) do
-            print("  " .. k .. " (" .. type(v) .. ")")
-        end
-    end
-end
-
 -- Expose module interface
 pfQuest.partyQuestData = partyQuestData
-pfQuest.epochComms = {
+pfQuest.partyapi = {
     eventFrame = eventFrame,
     configExtenderFrame = configExtenderFrame,
-    HookGameTooltip = HookGameTooltip,
-    HookPfQuestTooltip = HookPfQuestTooltip,
     ProcessQuestData = ProcessQuestData,
     StorePartyObjective = StorePartyObjective,
     IsValidProgress = IsValidProgress,
@@ -1697,6 +1488,7 @@ pfQuest.epochComms = {
     IsTrustedSender = IsTrustedSender,
     InboundAllowed = InboundAllowed,
     HandlePfqeMessage = HandlePfqeMessage,
+    CaptureTooltipTarget = CaptureTooltipTarget,
     PumpSyncTimers = PumpSyncTimers,
     partyQuestData = partyQuestData,
     myQuestMappings = myQuestMappings,

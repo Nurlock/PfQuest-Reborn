@@ -7,7 +7,7 @@ WoW 3.3.5a quest-helper addon. Pure Lua 5.1, no build step.
 `compat` → `theme` → `locales` → `config` → `slashcmd` → `database` →
 `icons` → `map` → `quest` → `route` → `tracker` → `browser` →
 `lootpanel` → `nameplates` → `continent` → `automation` → `announce` →
-`journal` → `menu` → `updatenotify` → `pfQuest-tooltip`.
+`journal` → `menu` → `updatenotify` → `party` → `tooltip`.
 
 Order matters: `browser.lua` dereferences `pfDB` at file top, so
 `database.lua` must load first.

@@ -25,10 +25,11 @@ env.pfUI = { api = { SanitizePattern = function(s) return s end, emulated = true
 env.pfQuest = { questlog = {}, collapsedQuestIDs = {}, announcedQuests = {} }
 
 load_file("compat/client.lua")
-load_file("pfQuest-tooltip.lua")
+load_file("party.lua")
+load_file("partytooltip.lua")
 
-local epoch = env.pfQuest.epochComms
-assert(epoch, "epochComms hooks must be exposed")
+local epoch = env.pfQuest.partyapi
+assert(epoch, "partyapi hooks must be exposed")
 
 print("[TEST] Markup-titled REMOVEQ purges sanitized entries...")
 epoch.StorePartyObjective("MarkupFriend", "Defias Bandit", 100, "|cffff0000Defias Hunt|r", "Slain: 3/10", 3, 10)

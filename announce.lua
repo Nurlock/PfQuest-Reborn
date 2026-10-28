@@ -7,6 +7,10 @@ pfQuestAnnounce = {}
 
 local objectiveState = {}
 
+-- One scan per objective name, rebuilt when the log changes. UI_INFO_MESSAGE
+-- fires per loot tick; two full log scans per tick does not scale in raids.
+local objectiveCache = {}
+
 local function GetQuestNameForObjective(objectiveName)
   local numQuestLogEntries = GetNumQuestLogEntries and GetNumQuestLogEntries() or 0
   for i = 1, numQuestLogEntries do
@@ -102,8 +106,15 @@ pfQuestAnnounce.OnQuestUpdate = function(message)
     end
   end
 
-  local questName = GetQuestNameForObjective(itemName)
-  local itemId = GetItemIdForObjective(itemName)
+  local cached = objectiveCache[itemName]
+  local questName, itemId
+  if cached then
+    questName, itemId = cached.questName, cached.itemId
+  else
+    questName = GetQuestNameForObjective(itemName)
+    itemId = GetItemIdForObjective(itemName)
+    objectiveCache[itemName] = { questName = questName, itemId = itemId }
+  end
   local itemLink = nil
   if itemId and GetItemInfo then
     local _, link = GetItemInfo(itemId)
@@ -131,7 +142,7 @@ pfQuestAnnounce.OnQuestUpdate = function(message)
   end
 
   if outMessage and outMessage ~= "" and SendChatMessage then
-    local channel = (GetNumRaidMembers and GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+    local channel = "PARTY" -- never RAID: one subgroup's chat, no 40-client storm
     SendChatMessage(outMessage, channel)
   end
   return outMessage
@@ -145,7 +156,7 @@ pfQuestAnnounce.AnnounceQuest = function(questId, title, isTurnIn)
   if not inParty then
     return
   end
-  local channel = (GetNumRaidMembers and GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+  local channel = "PARTY" -- never RAID: one subgroup's chat, no 40-client storm
   local qTitle = title
   local numericId = tonumber(questId) or 0
   local level = 0
@@ -179,8 +190,11 @@ end
 
 local frame = CreateFrame("Frame", "pfQuestAnnounceFrame")
 frame:RegisterEvent("UI_INFO_MESSAGE")
+frame:RegisterEvent("QUEST_LOG_UPDATE")
 frame:SetScript("OnEvent", function(self, event, msg)
-  if event == "UI_INFO_MESSAGE" and msg then
+  if event == "QUEST_LOG_UPDATE" then
+    objectiveCache = {}
+  elseif event == "UI_INFO_MESSAGE" and msg then
     pfQuestAnnounce.OnQuestUpdate(msg)
   end
 end)

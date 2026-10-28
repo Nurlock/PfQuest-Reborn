@@ -113,10 +113,11 @@ end
 env.UnitIsPlayer = function(u) return false end
 
 -- Load pure pfQuest-epoch tooltip and comms module
-load_file("pfQuest-tooltip.lua")
+load_file("party.lua")
+load_file("partytooltip.lua")
 
-local epoch = env.pfQuest.epochComms
-assert(epoch, "pfQuest.epochComms must be loaded")
+local epoch = env.pfQuest.partyapi
+assert(epoch, "pfQuest.partyapi must be loaded")
 epoch.HookGameTooltip()
 
 print("[TEST] 1. Verifying inbound pfqe V1 batch message...")
@@ -186,7 +187,21 @@ for _, msg in ipairs(sentAddonMessages) do
   end
 end
 assert(foundOutboundV1, "ShareQuestData must broadcast V1 entry for U116Q100:3:10;")
-print("  ✓ PASS: Outbound pfqe quest update correctly formatted and transmitted")
+print("  \u2713 PASS: Outbound pfqe quest update correctly formatted and transmitted")
+
+print("[TEST] 4b. Verifying abandon prunes our own mirror...")
+assert(epoch.partyQuestData["LocalPlayer"] ~= nil, "self-echo must exist after share")
+env.GetNumQuestLogEntries = function() return 0 end
+sentAddonMessages = {}
+epoch.ShareQuestData(true)
+assert(epoch.partyQuestData["LocalPlayer"] == nil, "abandoned quest must leave our mirror")
+local foundRemove = false
+for _, msg in ipairs(sentAddonMessages) do
+  if msg.prefix == "pfqe" and string.find(msg.text, "^REMOVEQ:100:Defias Hunt") then foundRemove = true end
+end
+assert(foundRemove, "abandon must broadcast REMOVEQ to peers")
+env.GetNumQuestLogEntries = function() return 1 end
+print("  \u2713 PASS: Abandon prunes our mirror and notifies peers")
 
 print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST is ignored (no handshake)...")
 sentAddonMessages = {}
@@ -400,7 +415,7 @@ epoch.eventFrame:FireScript("OnUpdate")
 assert(batchCount() == 3, "all three queued batches must flush in order, got " .. batchCount())
 print("  ✓ PASS: Multi-batch bursts flush fully via ticker")
 
-print("[TEST] 16c. Verifying party ender marker follows sender progress...")
+print("[TEST] 16c. Verifying shared map carries objectives only...")
 local function lastPartyMeta()
   for i = table.getn(searchedQuestIds), 1, -1 do
     if searchedQuestIds[i].meta and searchedQuestIds[i].meta.addon == "PARTY" then
@@ -408,19 +423,19 @@ local function lastPartyMeta()
     end
   end
 end
--- 0/10: unfinished must NOT request the gold turn-in look
+-- 0/10 and 10/10: completion state must never be shared, so no
+-- ender/starter logic can key off it; finished targets still blacklist.
 epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:0:10;")
 local m0 = lastPartyMeta()
-assert(m0 and m0.partyComplete == false, "0/10 party quest must mark partyComplete=false")
+assert(m0 and m0.partyComplete == nil, "PARTY meta must not carry completion state")
 assert(not m0.partyDone or not m0.partyDone["Defias Bandit"], "0/10 target must not be marked done")
--- 10/10: proven complete may use the gold turn-in look
 env.AdvanceTime(2)
 epoch.PumpSyncTimers()
 epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:10:10;")
 local m1 = lastPartyMeta()
-assert(m1 and m1.partyComplete == true, "10/10 party quest must mark partyComplete=true")
+assert(m1 and m1.partyComplete == nil, "PARTY meta must not carry completion state")
 assert(m1.partyDone and m1.partyDone["Defias Bandit"], "10/10 target must be marked done")
-print("  ✓ PASS: Party ender marker follows sender progress")
+print("  ✓ PASS: Shared map is objectives-only")
 
 print("[TEST] 19. Verifying periodic full re-sync while grouped...")
 sentAddonMessages = {}

@@ -1,4 +1,4 @@
-# tooltips (`pfQuest-tooltip.lua` hooks, `database.lua`, `map.lua`)
+# tooltips (`partytooltip.lua` hooks, `database.lua`, `map.lua`)
 
 Everything the player actually sees on hover. Three render sites,
 one shared rule: build lines from cached tables, never scan the
