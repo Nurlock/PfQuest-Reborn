@@ -78,12 +78,27 @@ assert(pfQuestInit1:IsShown() == true, "pfQuestInit wizard must show on first ru
 
 -- Check controls on wizard
 assert(pfQuestInit1.querybox ~= nil, "Query box must exist on pfQuestInit")
+assert(pfQuestInit1.trackerbox ~= nil, "Tracker box must exist on pfQuestInit")
+assert(pfQuestInit1.groupbox ~= nil, "Group sync box must exist on pfQuestInit")
 assert(pfQuestInit1.close ~= nil, "Close button must exist on pfQuestInit")
+
+-- Verify tracker + group sync default to enabled
+pfQuestInit1:FireScript("OnShow")
+assert(pfQuestInit1.trackerbox:GetChecked(), "Tracker box must default to checked")
+assert(pfQuestInit1.groupbox:GetChecked(), "Group sync box must default to checked")
+
+-- Uncheck both, verify save writes them as disabled
+pfQuestInit1.trackerbox:SetChecked(false)
+pfQuestInit1.trackerbox:FireScript("OnClick")
+pfQuestInit1.groupbox:SetChecked(false)
+pfQuestInit1.groupbox:FireScript("OnClick")
 
 -- Verify clicking Save & Close triggers pfDatabase:QueryServer()
 pfQuestInit1.save:FireScript("OnClick")
 assert(env1.pfDatabase.queryServerCalled == 1, "pfDatabase:QueryServer() must be called on first run save")
 assert(env1.pfQuest_config.welcome == "1", "Welcome flag must be set to 1 after Save & Close")
+assert(env1.pfQuest_config.showtracker == "0", "Unchecking tracker must write showtracker=0")
+assert(env1.pfQuest_config.epochgroupsync == "0", "Unchecking group sync must write epochgroupsync=0")
 assert(pfQuestInit1:IsShown() == false, "Wizard must be hidden after Save & Close")
 print("  ✓ PASS: First-run properly displays wizard and triggers /db query on Save & Close")
 
