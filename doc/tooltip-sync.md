@@ -13,9 +13,11 @@ party progress in tooltips.
   channel (tracks sent keys, no-change = no send);
   `BroadcastQuestRemove(questId, title)` sends `REMOVEQ:<id>:<title>`.
 - Group join (`PARTY_MEMBERS_CHANGED`, `RAID_ROSTER_UPDATE`,
-  `PLAYER_ENTERING_WORLD`): cleanup + `PFQUEST_SYNC_REQUEST` + full
-  share. Inbound requests are answered only if throttled
-  (`SyncResponseAllowed`).
+- `PLAYER_ENTERING_WORLD`): cleanup + full share. No answering
+  handshake: inbound requests are ignored; both sides push
+  proactively, and a slow periodic full share (every 5 min while
+  grouped) heals reloads. One outbound request per login pulls
+  full state from peers that never push unprompted (Epoch).
 
 ## Inbound (`pfqe` prefix)
 
