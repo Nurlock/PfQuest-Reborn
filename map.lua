@@ -857,10 +857,6 @@ end
 -- id-scoped "title\1id" keys. Lets a title-only DeleteNode clear every
 -- same-name quest (today's behavior), while AddNode keeps them separate.
 -- (Local, defined before AddNode/DeleteNode use it.)
--- Match every storage key owned by a title: the bare title itself plus all
--- id-scoped "title\1id" keys. Lets a title-only DeleteNode clear every
--- same-name quest (today's behavior), while AddNode keeps them separate.
--- (Local, defined before AddNode/DeleteNode use it.)
 local function TitleKeyMatches(key, title)
   return key == title or string.sub(key, 1, string.len(title) + 1) == title .. "\1"
 end

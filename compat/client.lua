@@ -17,7 +17,9 @@ local GetQuestLogTitle = CT_QuestLevels_oldGetQuestLogTitle or GetQuestLogTitle
 
 -- tbc+wotlk: change behaviour of later expansions to the vanilla one
 pfQuestCompat.GetQuestLogTitle = function(id)
-  local title, level, tag, group, header, collapsed, complete, daily, _
+  -- group/daily have no vanilla equivalent: read and drop, keeping the
+  -- tbc/wotlk return positions aligned. (W231 waived in .luacheckrc.)
+  local title, level, tag, group, header, collapsed, complete, daily
   if client <= 11200 then -- vanilla
     title, level, tag, header, collapsed, complete = GetQuestLogTitle(id)
   elseif client > 11200 then -- tbc & wotlk
@@ -46,10 +48,10 @@ end
 
 -- vanilla+tbc+wotlk: base function to insert quest links to the chat
 pfQuestCompat.InsertQuestLink = function(questid, name)
-  local questid = questid or 0
+  questid = questid or 0
   local fallback = name or UNKNOWN
   local level = pfDB["quests"]["data"][questid] and pfDB["quests"]["data"][questid]["lvl"] or 0
-  local name = pfDB["quests"]["loc"][questid] and pfDB["quests"]["loc"][questid]["T"] or fallback
+  name = pfDB["quests"]["loc"][questid] and pfDB["quests"]["loc"][questid]["T"] or fallback
   local hex = pfUI.api.rgbhex(pfQuestCompat.GetDifficultyColor(level))
 
   ChatFrameEditBox:Show()
@@ -129,9 +131,9 @@ end
 if client <= 11200 then
   local ParseQuestLevels = function(frame, text, a1, a2, a3, a4, a5)
     if text then
-      for oldhex, questid, level in gfind(text, "(|c%x+)|Hquest:(.-):(.-)|h") do
-        local questid = tonumber(questid)
-        local level = tonumber(level)
+      for oldhex, qid, lvl in gfind(text, "(|c%x+)|Hquest:(.-):(.-)|h") do
+        local questid = tonumber(qid)
+        local level = tonumber(lvl)
 
         if not level or level == 0 then
           level = pfDB["quests"]["data"][questid] and pfDB["quests"]["data"][questid]["lvl"] or 0
