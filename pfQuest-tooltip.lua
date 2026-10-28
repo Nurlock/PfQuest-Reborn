@@ -49,46 +49,23 @@ local function DeletePartyQuestNodes(questId, sender)
     local qData = pfDB and pfDB.quests and pfDB.quests.loc and (pfDB.quests.loc[questId] or (numQId and pfDB.quests.loc[numQId]))
     local qTitle = qData and qData.T or (type(questId) == "string" and questId) or (questId and ("Quest " .. tostring(questId)))
     local nodeTitle = (qTitle and sender) and (qTitle .. " (" .. sender .. ")") or qTitle
-    local deleted = false
 
     if pfMap.DeleteNode then
         if nodeTitle then
             pfMap:DeleteNode("PARTY", nodeTitle)
-            deleted = true
         end
         if qTitle then
             pfMap:DeleteNode("PARTY", qTitle)
-            deleted = true
         end
     end
 
-    if pfMap.nodes and pfMap.nodes["PARTY"] then
-        for map, coords in pairs(pfMap.nodes["PARTY"]) do
-            for coord, titles in pairs(coords) do
-                for title, node in pairs(titles) do
-                    if (not sender or node.partyMember == sender) and
-                       (not questId or node.questid == questId or (numQId and node.questid == numQId) or
-                        node.quest == qTitle or title == nodeTitle or title == qTitle) then
-                        titles[title] = nil
-                        deleted = true
-                        if pfMap.titleIndex and pfMap.titleIndex["PARTY"] and pfMap.titleIndex["PARTY"][title] then
-                            if pfMap.titleIndex["PARTY"][title][map] then
-                                pfMap.titleIndex["PARTY"][title][map][coord] = nil
-                            end
-                        end
-                    end
-                end
-                if pfMap.IsEmpty and pfMap.IsEmpty(titles) then
-                    coords[coord] = nil
-                elseif next(titles) == nil then
-                    coords[coord] = nil
-                end
-            end
-        end
-    end
-
-    if deleted then
-        pfMap.queue_update = GetTime()
+    -- Store surgery (nodes + reverse indexes) lives in map.lua.
+    if pfMap.DeleteNodesWhere then
+        pfMap:DeleteNodesWhere("PARTY", function(title, node)
+            return (not sender or node.partyMember == sender) and
+                (not questId or node.questid == questId or (numQId and node.questid == numQId) or
+                node.quest == qTitle or title == nodeTitle or title == qTitle)
+        end)
     end
 end
 
