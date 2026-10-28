@@ -94,6 +94,28 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
 
     local nodeTitle = qTitle .. " (" .. playerName .. ")"
 
+    -- Party completion comes from the sender's live progress, never from our
+    -- log: without it every party ender would render the gold turn-in marker.
+    local partyComplete = false
+    do
+        local known = false
+        local done = true
+        local targets = partyQuestData and partyQuestData[playerName]
+        if targets then
+            for _, list in pairs(targets) do
+                for _, data in ipairs(list) do
+                    if data.quest == qTitle and (not qId or not data.questId or data.questId == qId) then
+                        known = true
+                        if not (data.total and data.total >= 1 and data.current and data.current >= data.total) then
+                            done = false
+                        end
+                    end
+                end
+            end
+        end
+        if known then partyComplete = done end
+    end
+
     local pfMap = _G.pfMap
     local pfDatabase = _G.pfDatabase
     if pfMap and pfDatabase and pfDatabase.SearchQuestID and qId then
@@ -105,6 +127,7 @@ local function UpdatePartyMapNodes(questId, playerName, questTitle)
             quest = qTitle,
             questid = qId,
             color = playerName,
+            partyComplete = partyComplete,
         }
         pfDatabase:SearchQuestID(qId, meta)
         pfMap:RequestUpdate()
@@ -1316,10 +1339,14 @@ local function SyncResponseAllowed()
     return false
 end
 
--- Per-sender inbound throttle: a buggy peer blasting V1/REMOVEQ must not
--- hold us in SearchQuestID rebuilds. Coalesce bursts: keep the newest
--- pending message per sender and flush it when the window opens.
+-- Per-sender inbound throttle: a buggy peer blasting V1 batches must not
+-- hold us in SearchQuestID rebuilds. Bursts queue per sender and flush
+-- in order; batches are deltas, so newest-wins would lose data.
 local lastInboundBySender = {}
+-- Inbound burst cap per sender; beyond it the oldest queued batch drops.
+-- Normal traffic (even full-sync multi-batch) stays far below this.
+local MAX_QUEUED_BATCHES = 16
+
 local pendingInboundBySender = {}
 local INBOUND_THROTTLE_SECS = 1
 
@@ -1362,7 +1389,10 @@ local function HandlePfqeMessage(sender, message)
         if InboundAllowed(sender) then
             ProcessQuestData(sender, message)
         else
-            pendingInboundBySender[sender] = message
+            local queued = pendingInboundBySender[sender]
+            if not queued then queued = {} pendingInboundBySender[sender] = queued end
+            if table.getn(queued) >= MAX_QUEUED_BATCHES then table.remove(queued, 1) end
+            table.insert(queued, message)
             if debugMode then
                 print("|cff33ffccpfQuest-epoch:|r inbound batch from " .. tostring(sender) .. " queued")
             end
@@ -1384,10 +1414,12 @@ local function FlushPendingInbound(elapsed)
     if inboundFlushAccum < INBOUND_THROTTLE_SECS then return end
     inboundFlushAccum = 0
     if not IsSyncEnabled() then return end
-    for sender, message in pairs(pendingInboundBySender) do
+    for sender, queued in pairs(pendingInboundBySender) do
         pendingInboundBySender[sender] = nil
         if IsTrustedSender(sender, GetGroupDistribution()) and InboundAllowed(sender) then
-            ProcessQuestData(sender, message)
+            for _, message in ipairs(queued) do
+                ProcessQuestData(sender, message)
+            end
         end
     end
 end
@@ -1462,8 +1494,13 @@ eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
         end
     end
     -- Pump pending inbound + debounced quest-log sync on every event tick.
-    -- (Separate OnUpdate script would clobber OnEvent on the real client,
-    -- where one handler slot exists per event type.)
+    -- (The frame ticker below covers quiet periods with no events.)
+    PumpSyncTimers()
+end)
+
+-- Frame ticker so debounced sync and inbound flushes do not stall when
+-- no events fire after a kill (OnUpdate and OnEvent coexist on one frame).
+eventFrame:SetScript("OnUpdate", function()
     PumpSyncTimers()
 end)
 

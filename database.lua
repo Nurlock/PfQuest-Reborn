@@ -1910,7 +1910,11 @@ function pfDatabase:SearchQuestID(id, meta, maps)
         complete = complete or GetNumQuestLeaderBoards(meta["qlogid"]) == 0 and true or nil
         ender_texture = (complete == true or complete == 1) and pfQuestConfig.path .. "\\img\\complete_c"
           or pfQuestConfig.path .. "\\img\\complete"
-      else
+      elseif meta["partyComplete"] ~= nil then
+        -- Party quests: our log has no qlogid, so use the sender's progress.
+        -- Unknown or unfinished stays blue; only proven-complete goes gold.
+        ender_texture = meta["partyComplete"] and pfQuestConfig.path .. "\\img\\complete_c"
+          or pfQuestConfig.path .. "\\img\\complete"
         ender_texture = pfQuestConfig.path .. "\\img\\complete_c"
       end
 

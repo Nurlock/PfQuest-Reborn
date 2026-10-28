@@ -5,7 +5,7 @@ local mock = require("tests.mock_wow_api")
 local env = mock.create_env()
 env.UnitInParty = function(u)
   return u == "PartyFriend" or u == "EpochFriend" or u == "IdFriend"
-      or u == "ColonFriend" or u == "BurstFriend" or u == "WireFriend"
+      or u == "ColonFriend" or u == "BurstFriend" or u == "WireFriend" or u == "BatchFriend" or u == "GoldFriend"
       or nil
 end
 env.UnitInRaid = function(u) return nil end
@@ -95,6 +95,7 @@ env.pfDB.quests.data[100] = {
 env.pfDB.units = env.pfDB.units or { loc = {} }
 env.pfDB.units.loc[240] = "Marshal Dughan"
 env.pfDB.units.loc[116] = "Defias Bandit"
+env.pfDB.units.loc[241] = "Goldshire Guard"
 env.pfDatabase = env.pfDatabase or {}
 local searchedQuestIds = {}
 env.pfDatabase.SearchQuestID = function(self, qid, meta)
@@ -371,6 +372,46 @@ env.AdvanceTime(2)
 epoch.PumpSyncTimers()
 assert(burstCurrent() == 7, "queued newest batch must flush after throttle window")
 print("  ✓ PASS: Throttle queues newest batch and flushes it")
+
+print("[TEST] 16b. Verifying multi-batch bursts all arrive in order...")
+-- three back-to-back batches (e.g. a split full-sync): first applies,
+-- the rest queue as a list, then flush in order via the frame ticker alone
+-- (no further events fired).
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:1:10;", "PARTY", "BatchFriend")
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U240Q100:2:10;", "PARTY", "BatchFriend")
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U241Q100:3:10;", "PARTY", "BatchFriend")
+local function batchCount()
+  local n = 0
+  local d = epoch.partyQuestData["BatchFriend"]
+  if d then for _, quests in pairs(d) do n = n + table.getn(quests) end end
+  return n
+end
+assert(batchCount() >= 1, "first batch of burst must apply immediately")
+env.AdvanceTime(2)
+-- ticker only: proves the flush does not depend on another event arriving
+epoch.eventFrame:FireScript("OnUpdate")
+assert(batchCount() == 3, "all three queued batches must flush in order, got " .. batchCount())
+print("  ✓ PASS: Multi-batch bursts flush fully via ticker")
+
+print("[TEST] 16c. Verifying party ender marker follows sender progress...")
+local function lastPartyMeta()
+  for i = table.getn(searchedQuestIds), 1, -1 do
+    if searchedQuestIds[i].meta and searchedQuestIds[i].meta.addon == "PARTY" then
+      return searchedQuestIds[i].meta
+    end
+  end
+end
+-- 0/10: unfinished must NOT request the gold turn-in look
+epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:0:10;")
+local m0 = lastPartyMeta()
+assert(m0 and m0.partyComplete == false, "0/10 party quest must mark partyComplete=false")
+-- 10/10: proven complete may use the gold turn-in look
+env.AdvanceTime(2)
+epoch.PumpSyncTimers()
+epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:10:10;")
+local m1 = lastPartyMeta()
+assert(m1 and m1.partyComplete == true, "10/10 party quest must mark partyComplete=true")
+print("  ✓ PASS: Party ender marker follows sender progress")
 
 print("[TEST] 17. Verifying QUEST_LOG_UPDATE is debounced...")
 sentAddonMessages = {}
