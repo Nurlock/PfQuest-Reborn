@@ -64,7 +64,12 @@ local function ClearPath(path)
     end
   end
   path.count = 0
+  -- pool reuse: hidden textures stay indexed so the next DrawLine
+  -- reuses them instead of creating new ones
 end
+
+-- Cap dots per redraw: a huge route must reuse the pool, not grow it.
+local ROUTE_DOT_CAP = 400
 
 local function DrawLine(path, x, y, nx, ny, hl, minimap)
   local display = true
@@ -121,6 +126,10 @@ local function DrawLine(path, x, y, nx, ny, hl, minimap)
 
     if display then
       path.count = (path.count or 0) + 1
+      if path.count > ROUTE_DOT_CAP then
+        path.count = ROUTE_DOT_CAP
+        break
+      end
       local nline = path.count
 
       path[nline] = path[nline] or (minimap and pfMap.drawlayer or WorldMapButton.routes):CreateTexture(nil, "OVERLAY")
@@ -277,7 +286,6 @@ end
 
 local function sortfunc(a, b)
   return sortfuncCached(a, b, sortCache.mode5, sortCache.sortMode)
-end
 end
 pfQuest.route:SetScript("OnUpdate", function()
   local xplayer, yplayer = GetPlayerMapPosition("player")

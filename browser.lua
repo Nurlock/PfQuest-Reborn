@@ -12,8 +12,10 @@ local GetTime = GetTime
 local ITEM_SOURCE_KEYS = { "U", "O", "V" }
 local SEARCH_TABS = { "Units", "Objects", "Items", "Quests" }
 
--- default config
-pfBrowser_fav = { ["units"] = {}, ["objects"] = {}, ["items"] = {}, ["quests"] = {} }
+if type(pfBrowser_fav) ~= "table" then pfBrowser_fav = {} end
+for _, tab in pairs({ "units", "objects", "items", "quests" }) do
+  if type(pfBrowser_fav[tab]) ~= "table" then pfBrowser_fav[tab] = {} end
+end
 
 local tooltip_limit = 5
 local search_limit = 512

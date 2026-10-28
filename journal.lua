@@ -54,7 +54,7 @@ local function OnClick()
       pfQuestCompat.InsertQuestLink(0, this.id)
     end
   elseif this.id then
-    local maps = pfDatabase:SearchQuestID(this.id, meta)
+    local maps = pfDatabase:SearchQuestID(this.id, {})
     pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
   elseif this.column then
     collapsed[this.column] = not collapsed[this.column]
@@ -118,9 +118,15 @@ local function UpdateEntry(self, index)
     self[index]:Show()
   elseif self[index].id then
     local qid = tonumber(self[index].id) or UNKNOWN
-    local name = pfDB["quests"]["loc"][self[index].id] and pfDB["quests"]["loc"][self[index].id]["T"] or self[index].id
-    local log = pfQuest_history[self[index].id][1]
-    local level = pfQuest_history[self[index].id][2]
+    local qloc = pfDB and pfDB["quests"] and pfDB["quests"]["loc"]
+    local name = (qloc and qloc[self[index].id] and qloc[self[index].id]["T"]) or self[index].id
+    local hist = pfQuest_history and pfQuest_history[self[index].id]
+    if not hist then
+      self[index]:Hide()
+      return
+    end
+    local log = hist[1]
+    local level = hist[2]
     self[index].text:SetText(
       "  |cffffffff" .. date("%H:%M:%S", log) .. "  |cffffcc00[" .. (name or UNKNOWN) .. "]|cffaaaaaa (" .. qid .. ")"
     )

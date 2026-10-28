@@ -921,6 +921,9 @@ local function ProcessQuestData(sender, message)
                     partyQuestData[sender][targetKey] = nil
                 end
             end
+            if next(partyQuestData[sender]) == nil then
+                partyQuestData[sender] = nil
+            end
         end
 
         if pfQuest and pfQuest.partyQuests and pfQuest.partyQuests[sender] then
@@ -1474,12 +1477,35 @@ local function SyncResponseAllowed()
 end
 
 -- Per-sender inbound throttle: a buggy peer blasting V1/REMOVEQ must not
--- hold us in SearchQuestID rebuilds. Coalesce bursts, never drop the last.
+-- hold us in SearchQuestID rebuilds. Coalesce bursts: keep the newest
+-- pending message per sender and flush it when the window opens.
 local lastInboundBySender = {}
+local pendingInboundBySender = {}
 local INBOUND_THROTTLE_SECS = 1
 
+local function IsTrustedSender(sender, channel)
+    if type(sender) ~= "string" or sender == "" then return false end
+    local myName = UnitName and UnitName("player")
+    local clean = string.match(sender, "^([^-]+)") or sender
+    if myName and (sender == myName or clean == myName) then return false end
+    if channel ~= "PARTY" and channel ~= "RAID" then return false end
+    if GetNumRaidMembers and GetNumRaidMembers() > 0 then
+        if UnitInRaid then
+            return UnitInRaid(sender) ~= nil
+        end
+        return true
+    end
+    if GetNumPartyMembers and GetNumPartyMembers() > 0 then
+        if UnitInParty then
+            return UnitInParty(sender)
+        end
+        return true
+    end
+    return false
+end
+
 local function InboundAllowed(sender)
-    if not sender then return true end
+    if not sender then return false end
     local now = GetTime() or 0
     local last = lastInboundBySender[sender] or -INBOUND_THROTTLE_SECS
     if now - last < INBOUND_THROTTLE_SECS then
@@ -1489,20 +1515,70 @@ local function InboundAllowed(sender)
     return true
 end
 
-eventFrame:SetScript("OnEvent", function(self, event, ...)
+local function HandlePfqeMessage(sender, message)
+    if string.sub(message or "", 1, 8) == "REMOVEQ:" then
+        ProcessQuestData(sender, message)
+    elseif string.sub(message or "", 1, 3) == "V1|" then
+        if InboundAllowed(sender) then
+            ProcessQuestData(sender, message)
+        else
+            pendingInboundBySender[sender] = message
+            if debugMode then
+                print("|cff33ffccpfQuest-epoch:|r inbound batch from " .. tostring(sender) .. " queued")
+            end
+        end
+    elseif debugMode then
+        print("|cff33ffccpfQuest-epoch:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
+    end
+end
+
+local inboundFlushAccum = 0
+local inboundFlushLast = nil
+local questLogSyncPending = false
+local questLogSyncAccum = 0
+local questLogSyncLast = nil
+local QUEST_LOG_SYNC_DEBOUNCE = 2
+
+local function FlushPendingInbound(elapsed)
+    inboundFlushAccum = inboundFlushAccum + (elapsed or 0)
+    if inboundFlushAccum < INBOUND_THROTTLE_SECS then return end
+    inboundFlushAccum = 0
+    if not IsSyncEnabled() then return end
+    for sender, message in pairs(pendingInboundBySender) do
+        pendingInboundBySender[sender] = nil
+        if IsTrustedSender(sender, GetGroupDistribution()) and InboundAllowed(sender) then
+            ProcessQuestData(sender, message)
+        end
+    end
+end
+
+-- Test hook: advance pending timers without a frame tick.
+-- Uses GetTime deltas so mocked AdvanceTime drives it deterministically.
+local function PumpSyncTimers()
+    local now = (GetTime and GetTime()) or 0
+    if inboundFlushLast == nil then inboundFlushLast = now end
+    if questLogSyncLast == nil then questLogSyncLast = now end
+    FlushPendingInbound(now - inboundFlushLast)
+    inboundFlushLast = now
+    questLogSyncAccum = questLogSyncAccum + (now - questLogSyncLast)
+    questLogSyncLast = now
+    if questLogSyncPending and questLogSyncAccum >= QUEST_LOG_SYNC_DEBOUNCE then
+        questLogSyncPending = false
+        questLogSyncAccum = 0
+        if IsInGroup() and IsSyncEnabled() then
+            RebuildQuestMappings()
+            ShareQuestData()
+        end
+    end
+end
+
+eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
     if event == "CHAT_MSG_ADDON" then
-        local prefix, message, channel, sender = arg1, arg2, arg3, arg4
+        -- Real 3.3.5a client sets bare arg1..arg4 globals; tests pass varargs.
+        local prefix, message, channel, sender = a1 or arg1, a2 or arg2, a3 or arg3, a4 or arg4
         if prefix == "pfqe" then
-            if IsSyncEnabled() then
-                if string.sub(message or "", 1, 3) == "V1|" then
-                    if InboundAllowed(sender) then
-                        ProcessQuestData(sender, message)
-                    elseif debugMode then
-                        print("|cff33ffccpfQuest-epoch:|r inbound batch from " .. tostring(sender) .. " throttled")
-                    end
-                elseif debugMode then
-                    print("|cff33ffccpfQuest-epoch:|r unknown pfqe batch version (" .. string.sub(message or "", 1, 6) .. ")")
-                end
+            if IsSyncEnabled() and IsTrustedSender(sender, channel) then
+                HandlePfqeMessage(sender, message)
             end
         elseif prefix == "PFQUEST_SYNC_REQUEST" then
             local myName = UnitName("player")
@@ -1539,11 +1615,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             ShareQuestData(true)
         end
     elseif event == "QUEST_LOG_UPDATE" then
+        -- Debounce: kills/loot fire this per tick; rebuild+share at most
+        -- once per QUEST_LOG_SYNC_DEBOUNCE seconds, flushed by OnUpdate.
         if IsInGroup() and IsSyncEnabled() then
-            RebuildQuestMappings()
-            ShareQuestData()
+            questLogSyncPending = true
         end
     end
+    -- Pump pending inbound + debounced quest-log sync on every event tick.
+    -- (Separate OnUpdate script would clobber OnEvent on the real client,
+    -- where one handler slot exists per event type.)
+    PumpSyncTimers()
 end)
 
 local function ExtendPfQuestConfig()
@@ -1606,6 +1687,10 @@ end)
 SlashCmdList = SlashCmdList or {}
 SLASH_PFQUESTDEBUG1 = "/pfqd"
 SlashCmdList["PFQUESTDEBUG"] = function(msg)
+    if not debugMode then
+        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
+        return
+    end
     print("|cff33ffccpfQuest-epoch Debug:|r")
     print("=== Addon Status ===")
     print("pfQuest loaded: " .. tostring(IsAddOnLoaded("pfQuest")))
@@ -1657,6 +1742,10 @@ end
 
 SLASH_PFQUEREBUILD1 = "/pfqrebuild"
 SlashCmdList["PFQUEREBUILD"] = function(msg)
+    if not debugMode then
+        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
+        return
+    end
     print("|cff33ffccpfQuest-epoch:|r Manually triggering RebuildQuestMappings...")
     RebuildQuestMappings()
     if IsInGroup() and IsSyncEnabled() then
@@ -1670,6 +1759,10 @@ end
 
 SLASH_PFQUESTFIND1 = "/pfqfind"
 SlashCmdList["PFQUESTFIND"] = function(msg)
+    if not debugMode then
+        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
+        return
+    end
     print("|cff33ffccpfQuest-epoch:|r Checking pfDB structure...")
 
     if not pfDB then
@@ -1697,6 +1790,10 @@ end
 
 SLASH_PFQUESTAPI1 = "/pfqapi"
 SlashCmdList["PFQUESTAPI"] = function(msg)
+    if not debugMode then
+        print("|cff33ffccpfQuest-epoch:|r Debug commands are disabled.")
+        return
+    end
     print("|cff33ffccpfQuest-epoch:|r Checking pfQuest API...")
     if pfDB and pfDB.quests and pfDB.quests.data and pfDB.quests.data[7] then
         print("\nQuest ID 7 full structure:")
@@ -1741,6 +1838,10 @@ pfQuest.epochComms = {
     IsSyncEnabled = IsSyncEnabled,
     IsTooltipEnabled = IsTooltipEnabled,
     GetGroupDistribution = GetGroupDistribution,
+    IsTrustedSender = IsTrustedSender,
+    InboundAllowed = InboundAllowed,
+    HandlePfqeMessage = HandlePfqeMessage,
+    PumpSyncTimers = PumpSyncTimers,
     partyQuestData = partyQuestData,
     myQuestMappings = myQuestMappings,
 }

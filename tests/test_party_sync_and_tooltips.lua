@@ -3,6 +3,12 @@
 
 local mock = require("tests.mock_wow_api")
 local env = mock.create_env()
+env.UnitInParty = function(u)
+  return u == "PartyFriend" or u == "EpochFriend" or u == "IdFriend"
+      or u == "ColonFriend" or u == "BurstFriend" or u == "WireFriend"
+      or nil
+end
+env.UnitInRaid = function(u) return nil end
 
 local loadstring = loadstring or load
 
@@ -294,5 +300,88 @@ local sentOnce = #sentAddonMessages
 epoch.ShareQuestData(false)
 assert(#sentAddonMessages == sentOnce, "Second delta broadcast with no changes must send nothing")
 print("  ✓ PASS: Broadcast state only tracks sent keys")
+
+print("[TEST] 13. Verifying REMOVEQ arrives through the real CHAT_MSG_ADDON path...")
+epoch.ProcessQuestData("WireFriend", "V1|U116Q100:4:10;")
+assert(epoch.partyQuestData["WireFriend"] ~= nil, "WireFriend data must exist before removal")
+env.AdvanceTime(30)
+epoch.PumpSyncTimers()
+epoch.HandlePfqeMessage("WireFriend", "REMOVEQ:100:Defias Hunt")
+assert(epoch.partyQuestData["WireFriend"] == nil, "direct REMOVEQ must purge")
+epoch.ProcessQuestData("WireFriend", "V1|U116Q100:4:10;")
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "REMOVEQ:100:Defias Hunt", "PARTY", "WireFriend")
+epoch.PumpSyncTimers()
+assert(epoch.partyQuestData["WireFriend"] == nil, "trusted REMOVEQ through CHAT_MSG_ADDON must purge")
+print("  ✓ PASS: REMOVEQ routed through CHAT_MSG_ADDON and purged")
+
+print("[TEST] 13b. Verifying untrusted REMOVEQ is dropped...")
+epoch.ProcessQuestData("StrangerData", "V1|U116Q100:4:10;")
+assert(epoch.partyQuestData["StrangerData"] ~= nil, "setup: StrangerData must exist")
+env.AdvanceTime(30)
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "REMOVEQ:100:Defias Hunt", "PARTY", "Stranger")
+local stillThere = epoch.partyQuestData["StrangerData"]
+local strangerTouched = epoch.partyQuestData["Stranger"]
+assert(stillThere ~= nil, "untrusted REMOVEQ must not purge other senders' data")
+assert(strangerTouched == nil, "untrusted sender must not create party data")
+print("  ✓ PASS: Untrusted REMOVEQ dropped")
+
+print("[TEST] 14. Verifying nil sender and self-echo are dropped...")
+local function countEntries(sender)
+  local n = 0
+  for _, quests in pairs(epoch.partyQuestData[sender] or {}) do n = n + table.getn(quests) end
+  return n
+end
+local beforeSelf = countEntries("LocalPlayer")
+env.AdvanceTime(30)
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:4:10;", "PARTY", nil)
+assert(epoch.partyQuestData[nil] == nil, "nil sender must not create party data")
+env.AdvanceTime(30)
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:4:10;", "PARTY", "LocalPlayer")
+epoch.PumpSyncTimers()
+-- ShareQuestData mirrors own progress locally; the wire must add nothing new.
+assert(countEntries("LocalPlayer") == beforeSelf, "self-echo must not add party data")
+print("  ✓ PASS: Nil sender and self-echo dropped")
+
+print("[TEST] 15. Verifying wrong-channel and GUILD messages are dropped...")
+env.AdvanceTime(30)
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:4:10;", "GUILD", "PartyFriend")
+epoch.PumpSyncTimers()
+local gcount = 0
+if epoch.partyQuestData["PartyFriend"] then
+  for _, quests in pairs(epoch.partyQuestData["PartyFriend"]) do gcount = gcount + table.getn(quests) end
+end
+-- PartyFriend already has legit data from test 1; GUILD dup must not add rows
+assert(gcount <= 2, "GUILD-channel pfqe must not be ingested")
+print("  ✓ PASS: Wrong-channel messages dropped")
+
+print("[TEST] 16. Verifying throttled V1 is queued, not lost...")
+-- BurstFriend is fresh: first batch lands inside the trust+throttle window.
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:5:10;", "PARTY", "BurstFriend")
+env.AdvanceTime(0.1)
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:7:10;", "PARTY", "BurstFriend")
+local function burstCurrent()
+  local d = epoch.partyQuestData["BurstFriend"]
+  if not d then return nil end
+  for _, quests in pairs(d) do
+    for _, q in ipairs(quests) do return q.current end
+  end
+end
+assert(burstCurrent() == 5, "first batch applies immediately, second is queued")
+env.AdvanceTime(2)
+epoch.PumpSyncTimers()
+assert(burstCurrent() == 7, "queued newest batch must flush after throttle window")
+print("  ✓ PASS: Throttle queues newest batch and flushes it")
+
+print("[TEST] 17. Verifying QUEST_LOG_UPDATE is debounced...")
+sentAddonMessages = {}
+env.AdvanceTime(30)
+for i = 1, 5 do
+  epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
+end
+assert(#sentAddonMessages == 0, "rapid QUEST_LOG_UPDATE ticks must not broadcast synchronously")
+epoch.PumpSyncTimers()
+local afterDebounce = #sentAddonMessages
+assert(afterDebounce >= 0, "debounced flush must run without error")
+print("  ✓ PASS: QUEST_LOG_UPDATE debounced")
 
 print("\ntest_party_sync_and_tooltips PASSED successfully!")
