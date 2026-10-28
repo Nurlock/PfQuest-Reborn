@@ -267,9 +267,6 @@ pfQuest:SetScript("OnEvent", function()
     end
   elseif event == "PLAYER_LEVEL_UP" or event == "PLAYER_ENTERING_WORLD" then
     pfQuest.updateQuestGivers = true
-    if event == "PLAYER_ENTERING_WORLD" then
-      pfQuest.needsGroupSync = true
-    end
   else
     pfQuest.updateQuestLog = true
   end
@@ -380,9 +377,8 @@ pfQuest:SetScript("OnUpdate", function()
           pfQuest_history[entry[2]] = { time(), UnitLevel("player") }
           if not (pfQuest.lock and pfQuest.lock > GetTime()) and not pfQuest.announcedQuests[entry[2]] then
             pfQuest.announcedQuests[entry[2]] = true
-            local comms = pfQuest.questieComms
-            if comms and comms.AnnounceQuest then
-              comms:AnnounceQuest(entry[2], entry[1], true)
+            if pfQuestAnnounce and pfQuestAnnounce.AnnounceQuest then
+              pfQuestAnnounce.AnnounceQuest(entry[2], entry[1], true)
             end
           end
         end
@@ -408,12 +404,12 @@ pfQuest:SetScript("OnUpdate", function()
           pfQuest:Debug(format("|cffffff00TIMER DeleteNode(REMOVE): %.4fs", GetTime() - t0))
         end
 
-        pfQuest.abandon = ""
-
-        -- Reforged: Questie group quest following compatibility
-        if pfQuestieComms and pfQuestieComms.BroadcastQuestRemove then
-          pfQuestieComms:BroadcastQuestRemove(entry[2])
+        -- tell the party to clear our markers for this quest
+        if pfQuest.epochComms and pfQuest.epochComms.BroadcastQuestRemove then
+          pfQuest.epochComms:BroadcastQuestRemove(entry[2], entry[1])
         end
+
+        pfQuest.abandon = ""
       else
         if entry[4] == "NEW" then
           pfQuest:Debug("|cff55ff55New Quest: " .. entry[1] .. " (" .. entry[2] .. ")")
@@ -487,11 +483,6 @@ pfQuest:SetScript("OnUpdate", function()
             pfQuest:Debug(format("|cffff8800TIMER SearchQuestID: %.4fs", GetTime() - t1))
           end
         end
-
-        -- Reforged: Questie group quest following compatibility
-        if pfQuestieComms and pfQuestieComms.BroadcastQuestUpdate then
-          pfQuestieComms:BroadcastQuestUpdate(entry[2])
-        end
       end
 
       -- remove entry from queue and decrement counter
@@ -521,12 +512,6 @@ pfQuest:SetScript("OnUpdate", function()
     if this.needsQuestGiverUpdate then
       this.updateQuestGivers = true
       this.needsQuestGiverUpdate = false
-    end
-    if pfQuest.needsGroupSync then
-      pfQuest.needsGroupSync = nil
-      if pfQuest.questieComms and pfQuest.questieComms.SyncOnLoginOrReload then
-        pfQuest.questieComms:SyncOnLoginOrReload()
-      end
     end
   end
 end)
@@ -583,9 +568,8 @@ function pfQuest:UpdateQuestlog()
         if isNowComplete and not wasComplete then
           pfQuest.questlog[questid].isComplete = true
           pfQuest.announcedQuests[questid] = true
-          local comms = pfQuest.questieComms
-          if comms and comms.AnnounceQuest then
-            comms:AnnounceQuest(questid, title, false)
+          if pfQuestAnnounce and pfQuestAnnounce.AnnounceQuest then
+            pfQuestAnnounce.AnnounceQuest(questid, title, false)
           end
         else
           pfQuest.questlog[questid].isComplete = isNowComplete
@@ -682,6 +666,12 @@ end
 function pfQuest:ResetAll()
   -- force reload all quests
   pfMap:DeleteNode("PFQUEST")
+  if pfMap.DeleteNode then
+    pfMap:DeleteNode("PARTY")
+  end
+  if pfQuest.epochComms and pfQuest.epochComms.CleanupPartyData then
+    pfQuest.epochComms:CleanupPartyData()
+  end
   pfQuest.questlog = {}
   pfQuest.announcedQuests = {}
   pfQuest.updateQuestLog = true
@@ -690,15 +680,6 @@ function pfQuest:ResetAll()
   if pfDatabase then
     for id in pairs(pfDatabase.lastQuestGiversSet) do
       pfDatabase.lastQuestGiversSet[id] = nil
-    end
-  end
-
-  if pfQuest.questieComms then
-    if not pfQuest.questieComms:IsEnabled() or pfQuest_config["showpartyobjectives"] == "0" then
-      pfQuest.questieComms:ClearAllPartyData()
-    elseif pfQuest.questieComms:IsInGroup() then
-      pfQuest.needsGroupSync = true
-      pfQuest.questieComms:RequestFullQuestList()
     end
   end
 end

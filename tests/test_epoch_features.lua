@@ -295,4 +295,21 @@ local outFin = env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 5/5")
 assert(outFin ~= nil and string.find(outFin, "Finished"), "Must announce Finished: got " .. tostring(outFin))
 print("  ✓ PASS: Quest chat announcements verified")
 
+print("[TEST] Verifying AnnounceQuest quest link and turn-in wording...")
+env.pfDB = env.pfDB or { quests = { loc = {}, data = {} } }
+env.pfDB.quests.loc[100] = { T = "Defias Hunt" }
+env.pfDB.quests.data[100] = { lvl = 10 }
+env.GetNumPartyMembers = function() return 2 end
+env.GetNumRaidMembers = function() return 0 end
+sentMessage = nil
+sentChannel = nil
+env.pfQuestAnnounce.AnnounceQuest(100, nil, false)
+assert(sentMessage ~= nil and string.find(sentMessage, "|Hquest:100:10|h", 1, true), "Completion must include clickable quest link: got " .. tostring(sentMessage))
+assert(string.find(sentMessage, "Quest Completed", 1, true), "Completion wording must say Quest Completed: got " .. tostring(sentMessage))
+sentMessage = nil
+env.pfQuestAnnounce.AnnounceQuest(100, nil, true)
+assert(sentMessage ~= nil and string.find(sentMessage, "Quest Turned In", 1, true), "Turn-in wording must say Quest Turned In: got " .. tostring(sentMessage))
+assert(sentChannel == "PARTY", "AnnounceQuest must use PARTY channel")
+print("  ✓ PASS: AnnounceQuest link and wording verified")
+
 print("test_epoch_features PASSED successfully!")

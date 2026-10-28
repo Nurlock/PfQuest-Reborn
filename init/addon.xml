@@ -20,5 +20,5 @@
   <Include file="..\journal.lua" />
   <Include file="..\menu.lua" />
   <Include file="..\updatenotify.lua" />
-  <Include file="..\questiecomms.lua" />
+  <Include file="..\pfQuest-tooltip.lua" />
 </Ui>

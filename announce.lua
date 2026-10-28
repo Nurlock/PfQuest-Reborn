@@ -137,6 +137,46 @@ pfQuestAnnounce.OnQuestUpdate = function(message)
   return outMessage
 end
 
+pfQuestAnnounce.AnnounceQuest = function(questId, title, isTurnIn)
+  if pfQuest_config and pfQuest_config["questannounce"] == "0" then
+    return
+  end
+  local inParty = (GetNumPartyMembers and GetNumPartyMembers() > 0) or (GetNumRaidMembers and GetNumRaidMembers() > 0)
+  if not inParty then
+    return
+  end
+  local channel = (GetNumRaidMembers and GetNumRaidMembers() > 0) and "RAID" or "PARTY"
+  local qTitle = title
+  local numericId = tonumber(questId) or 0
+  local level = 0
+  if pfDB and pfDB.quests then
+    if pfDB.quests.loc and pfDB.quests.loc[numericId] then
+      qTitle = pfDB.quests.loc[numericId].T
+    end
+    if pfDB.quests.data and pfDB.quests.data[numericId] then
+      level = pfDB.quests.data[numericId].lvl or 0
+    end
+  end
+  if not qTitle and pfQuest and pfQuest.questlog and pfQuest.questlog[questId] then
+    qTitle = pfQuest.questlog[questId].title
+  end
+  qTitle = qTitle or (type(questId) == "string" and questId) or ("Quest " .. tostring(questId))
+  local questLink
+  if _G and _G.GetQuestLink and pfQuest and pfQuest.questlog and pfQuest.questlog[questId] and pfQuest.questlog[questId].qlogid then
+    questLink = _G.GetQuestLink(pfQuest.questlog[questId].qlogid)
+  end
+  if not questLink and numericId > 0 then
+    questLink = string.format("|cffffff00|Hquest:%d:%d|h[%s]|h|r", numericId, level, qTitle)
+  else
+    questLink = questLink or ("[" .. qTitle .. "]")
+  end
+  local action = isTurnIn and "Quest Turned In" or "Quest Completed"
+  local msg = "{rt1} pfQuest: " .. action .. ": " .. questLink .. "!"
+  if SendChatMessage then
+    SendChatMessage(msg, channel)
+  end
+end
+
 local frame = CreateFrame("Frame", "pfQuestAnnounceFrame")
 frame:RegisterEvent("UI_INFO_MESSAGE")
 frame:SetScript("OnEvent", function(self, event, msg)
