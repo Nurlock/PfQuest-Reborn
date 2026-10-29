@@ -31,8 +31,9 @@ local function OnEnter()
     pfDatabase:ShowExtendedTooltip(this.id, GameTooltip, this, "ANCHOR_LEFT", 0, -10)
 
     -- add level of completion
-    if pfQuest_history[this.id] and pfQuest_history[this.id][2] then
-      local level = pfQuest_history[this.id][2]
+    local hkey = tonumber(this.id) or this.id
+    if pfQuest_history[hkey] and pfQuest_history[hkey][2] then
+      local level = pfQuest_history[hkey][2]
       local color = pfQuestCompat.GetDifficultyColor(level)
       GameTooltip:AddLine("|cffffffff" .. pfQuest_Loc["Completed Level"] .. ": |r" .. level, color.r, color.g, color.b)
     end
@@ -64,7 +65,7 @@ end
 
 local function RemoveOnClick()
   if this.entry.id then
-    pfQuest_history[this.entry.id] = nil
+    pfQuest_history[tonumber(this.entry.id) or this.entry.id] = nil
     this.view:ReloadJournal()
   end
 end
@@ -120,8 +121,8 @@ local function UpdateEntry(self, index)
     local qid = tonumber(self[index].id) or UNKNOWN
     local qloc = pfDB and pfDB["quests"] and pfDB["quests"]["loc"]
     local name = (qloc and qloc[self[index].id] and qloc[self[index].id]["T"]) or self[index].id
-    local hist = pfQuest_history and pfQuest_history[self[index].id]
-    if not hist then
+    local hist = pfQuest_history and pfQuest_history[tonumber(self[index].id) or self[index].id]
+    if type(hist) ~= "table" or type(hist[1]) ~= "number" then
       self[index]:Hide()
       return
     end
@@ -137,6 +138,7 @@ local function UpdateEntry(self, index)
 end
 
 local journal = {}
+
 local function ReloadJournal(self)
   local self = self or this
 
@@ -145,21 +147,23 @@ local function ReloadJournal(self)
   local lastcolumn, column
 
   for questid, data in pfQuest:SortedPairs(pfQuest_history, 1) do
-    column = data[1] == 0 and UNKNOWN or date("%A, %B %d (%Y)", data[1])
+    if type(data) == "table" and type(data[1]) == "number" then
+      column = data[1] == 0 and UNKNOWN or date("%A, %B %d (%Y)", data[1])
 
-    if column ~= lastcolumn then -- add columns to the view
-      lastcolumn = column
-      journal[index] = journal[index] or {}
-      journal[index].column = column
-      journal[index].id = nil
-      index = index + 1
-    end
+      if column ~= lastcolumn then -- add columns to the view
+        lastcolumn = column
+        journal[index] = journal[index] or {}
+        journal[index].column = column
+        journal[index].id = nil
+        index = index + 1
+      end
 
-    if not collapsed[column] then -- add regular entries
-      journal[index] = journal[index] or {}
-      journal[index].column = nil
-      journal[index].id = questid
-      index = index + 1
+      if not collapsed[column] then -- add regular entries
+        journal[index] = journal[index] or {}
+        journal[index].column = nil
+        journal[index].id = questid
+        index = index + 1
+      end
     end
   end
 
@@ -179,10 +183,22 @@ local function ReloadJournal(self)
     self[id].column = journal[id + self.offset] and journal[id + self.offset].column or nil
     UpdateEntry(self, id)
   end
+
+  -- sync scrollbar (OnValueChanged no-ops when already equal: no loop)
+  local maxOffset = max(0, table.getn(journal) - maxcolumns)
+  if pfJournal.scroll then
+    pfJournal.scroll:SetMinMaxValues(0, maxOffset)
+    pfJournal.scroll:SetValue(self.offset or 0)
+    if maxOffset == 0 then pfJournal.scroll:Hide() else pfJournal.scroll:Show() end
+  end
 end
 
 -- browser window
 pfJournal = CreateFrame("Frame", "pfQuestJournal", UIParent)
+-- Single writer for the journal refresh flag.
+function pfJournal:MarkDirty()
+  self.dirty = true
+end
 pfJournal:Hide()
 pfJournal:SetWidth(340)
 pfJournal:SetHeight(520)
@@ -253,6 +269,27 @@ pfJournal.entries:SetScript("OnUpdate", function()
   this.tick = GetTime() + 0.5
   pfJournal.dirty = nil
   this:ReloadJournal()
+end)
+
+-- Visible scrollbar bound to the entries offset (wheel already worked).
+pfJournal.scroll = CreateFrame("Slider", nil, pfJournal)
+pfJournal.scroll:SetWidth(12)
+pfJournal.scroll:SetPoint("TOPRIGHT", pfJournal, "TOPRIGHT", -6, -35)
+pfJournal.scroll:SetPoint("BOTTOMRIGHT", pfJournal, "BOTTOMRIGHT", -6, 10)
+pfJournal.scroll:SetOrientation("VERTICAL")
+pfJournal.scroll:SetMinMaxValues(0, 0)
+pfJournal.scroll:SetValue(0)
+do
+  local thumb = pfJournal.scroll:CreateTexture(nil, "OVERLAY")
+  thumb:SetTexture(0.2, 1, 0.8, 0.8)
+  pfJournal.scroll:SetThumbTexture(thumb)
+end
+pfJournal.scroll:SetScript("OnValueChanged", function()
+  local v = math.floor(this:GetValue() + 0.5)
+  if pfJournal.entries.offset ~= v then
+    pfJournal.entries.offset = v
+    pfJournal.entries:ReloadJournal()
+  end
 end)
 
 -- Mark journal dirty when shown (initial load)

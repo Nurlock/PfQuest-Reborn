@@ -248,6 +248,7 @@ local function str2rgb(text)
   return unpack(rgbcache[text])
 end
 
+
 local fpsmod, step
 local function NodeAnimate(self, zoom, alpha, fps)
   local cur_zoom = self:GetWidth()
@@ -1034,6 +1035,35 @@ function pfMap:AddNode(meta)
   pfMap.queue_update = GetTime()
 end
 
+-- Trigger helper: any component asking the map to redraw goes through
+-- here instead of writing pfMap.queue_update directly.
+function pfMap:RequestUpdate()
+  pfMap.queue_update = GetTime()
+end
+
+-- Extension seam: components observe (never replace) the update pipeline.
+local updateHooks = {}
+function pfMap:AddUpdateHook(fn)
+  table.insert(updateHooks, fn)
+end
+local function RunUpdateHooks(kind, frame, node, color, obj, distance)
+  for _, fn in ipairs(updateHooks) do fn(kind, frame, node, color, obj, distance) end
+end
+
+-- Membership query: does this quest have any node in the given zone.
+-- Lets quest.lua gate zone logic without walking the node store.
+function pfMap:ZoneHasQuest(zone, questid)
+  local maps = pfMap.nodes and pfMap.nodes["PFQUEST"]
+  local coords = maps and maps[zone]
+  if not coords then return nil end
+  for _, titles in pairs(coords) do
+    for _, node in pairs(titles) do
+      if (node.questid or node.title) == questid then return true end
+    end
+  end
+  return nil
+end
+
 function pfMap:GetNodes(addon, title)
   local nodes = {}
 
@@ -1183,6 +1213,56 @@ function pfMap:DeleteNode(addon, title)
   pfMap.tick = nil
 end
 
+-- Delete every node of one addon where matches(title, node) is true.
+-- Collect-then-delete through DeleteNode so all reverse indexes
+-- (title, tooltip, unifiedcache) stay consistent. Returns true if
+-- anything was removed.
+function pfMap:DeleteNodesWhere(addon, matches)
+  if not addon or not pfMap.nodes[addon] then return false end
+  local dead = {}
+  for _, coords in pairs(pfMap.nodes[addon]) do
+    for _, titles in pairs(coords) do
+      for title, node in pairs(titles) do
+        if matches(title, node) then dead[title] = true end
+      end
+    end
+  end
+  local deleted = false
+  for title in pairs(dead) do
+    pfMap:DeleteNode(addon, title)
+    deleted = true
+  end
+  return deleted
+end
+
+-- Read-only cluster snapshot for one addon+quest: {{map, hash, data}}.
+-- Lets database prepare cluster markers without touching node stores.
+function pfMap:GetClusterData(addon, cacheKey)
+  local out = {}
+  local maps = pfMap.nodes and pfMap.nodes[addon]
+  local cached = pfMap.unifiedcache and pfMap.unifiedcache[cacheKey]
+  if not maps or not cached then return out end
+  for map in pairs(maps) do
+    if cached[map] then
+      for hash, data in pairs(cached[map]) do
+        table.insert(out, { map = map, hash = hash, data = data })
+      end
+    end
+  end
+  return out
+end
+
+-- Single writer for unified-cache keys (database prepares markers through this).
+function pfMap:ClearUnifiedCache(key)
+  if self.unifiedcache then self.unifiedcache[key] = {} end
+end
+
+-- Sanctioned seam for tooltip overrides: wraps (never replaces blindly).
+function pfMap:SetTooltipHook(fn)
+  local orig = self.ShowTooltip
+  self.ShowTooltip = function(s, m, t) return fn(orig, s, m, t) end
+end
+
 function pfMap:NodeClick()
   if IsAltKeyDown() and this.spawnid and pfQuestLoot and pfQuestLoot.ShowPinned then
     local unitData = pfDB and pfDB["units"] and pfDB["units"]["data"] and pfDB["units"]["data"][this.spawnid]
@@ -1195,7 +1275,7 @@ function pfMap:NodeClick()
   if IsShiftKeyDown() then
     if this.questid and this.texture and this.layer < 5 then
       -- mark questnode as done
-      pfQuest_history[this.questid] = { time(), UnitLevel("player") }
+      pfQuest_history[tonumber(this.questid) or this.questid] = { time(), UnitLevel("player") }
     end
 
     if this.node and this.title and this.node[this.title] then
@@ -1203,7 +1283,7 @@ function pfMap:NodeClick()
       pfMap:DeleteNode(this.node[this.title].addon, this.title)
     end
 
-    pfQuest.updateQuestGivers = true
+    pfQuest:FlagGiverUpdate()
   elseif
     this.texture
     and pfQuest.route
@@ -1220,7 +1300,7 @@ function pfMap:NodeClick()
     pfMap.queue_update = GetTime()
   else
     -- switch color
-    pfQuest_colors[this.color] = { str2rgb(this.color .. GetTime()) }
+    pfMap:CyclePinColor(this.color)
     -- dirty every coord table containing this title so all related pins re-render
     local addon = this.node and this.node[this.title] and this.node[this.title].addon
     if addon and pfMap.titleIndex[addon] and pfMap.titleIndex[addon][this.title] then
@@ -1391,6 +1471,18 @@ function pfMap:NodeEnter()
   end
 
   pfMap.highlight = pfQuest_config["mouseover"] == "1" and this.title
+end
+
+-- Single writer for the hover-highlight title.
+function pfMap:SetHighlight(title)
+  pfMap.highlight = title
+  pfMap:RequestUpdate()
+end
+
+-- Single writer for click-to-recolor (map + tracker clicks come here).
+function pfMap:CyclePinColor(title)
+  pfQuest_colors[title] = { str2rgb(title .. GetTime()) }
+  self:RequestUpdate()
 end
 
 function pfMap:NodeLeave()
@@ -1582,6 +1674,7 @@ function pfMap:UpdateNode(frame, node, color, obj, distance)
   pfMap:ResizeNode(frame, obj)
 
   frame.node = node
+  RunUpdateHooks("node", frame, node, color, obj, distance)
 end
 
 function pfMap:ResizeNode(frame, obj)
@@ -1660,6 +1753,7 @@ function pfMap:UpdateNodes()
     if pfQuest.tracker and pfQuest.tracker.DoLayout then
       pfQuest.tracker.DoLayout()
     end
+    RunUpdateHooks("nodes")
     return
   end
   local i = 1
@@ -1737,7 +1831,7 @@ function pfMap:UpdateNodes()
         elseif pfQuest_config["showcluster"] == "0" and pfMap.pins[i].cluster then
           pfMap.pins[i]:Hide()
         -- hide individual quest spawns
-        elseif pfQuest_config["showspawn"] == "0" and addon == "PFQUEST" and not pfMap.pins[i].texture then
+        elseif pfQuest_config["showspawn"] == "0" and (addon == "PFQUEST" or addon == "PARTY") and not pfMap.pins[i].texture then
           pfMap.pins[i]:Hide()
         else
           -- populate quest list on map (display title, not storage key)
@@ -1790,6 +1884,7 @@ function pfMap:UpdateNodes()
   pfMap.dirtyMaps[map] = nil
   -- map has fully rendered; subsequent zone changes are deliberate user actions
   pfMap.mapJustOpened = nil
+  RunUpdateHooks("nodes")
 end
 
 -- Reforged perf: memoized zone-name -> mapID for the minimap loop (see below).
@@ -1960,7 +2055,7 @@ function pfMap:UpdateMinimap()
 
           if pfQuest_config["showclustermini"] == "0" and pfMap.mpins[i].cluster then
             pfMap.mpins[i]:Hide()
-          elseif pfQuest_config["showspawnmini"] == "0" and addon == "PFQUEST" and not pfMap.mpins[i].texture then
+          elseif pfQuest_config["showspawnmini"] == "0" and (addon == "PFQUEST" or addon == "PARTY") and not pfMap.mpins[i].texture then
             pfMap.mpins[i]:Hide()
           else
             pfMap.mpins[i]:ClearAllPoints()

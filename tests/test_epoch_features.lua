@@ -137,7 +137,9 @@ local addedNodes = {}
 env.pfMap = {
   nodes = {},
   AddNode = function(self, node) table.insert(addedNodes, node) end,
-  unifiedcache = {}
+  unifiedcache = {},
+  GetClusterData = function(self, addon, cacheKey) return {} end,
+  ClearUnifiedCache = function(self, key) self.unifiedcache[key] = {} end,
 }
 
 env.pfQuest_config["currentquestgivers"] = "1"
@@ -280,6 +282,17 @@ local out = env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 1/5")
 assert(out ~= nil and string.find(out, "4 left"), "Announcement must report 4 left: got " .. tostring(out))
 assert(sentChannel == "PARTY", "Channel should be PARTY")
 
+-- In raid: still PARTY, never RAID (no 40-client storm)
+env.GetNumPartyMembers = function() return 0 end
+env.GetNumRaidMembers = function() return 10 end
+sentMessage = nil
+sentChannel = nil
+local outRaid = env.pfQuestAnnounce.OnQuestUpdate("Gnoll slain: 3/5")
+assert(outRaid ~= nil, "Must still announce in raid")
+assert(sentChannel == "PARTY", "Raid announce must stay on PARTY, got " .. tostring(sentChannel))
+env.GetNumPartyMembers = function() return 2 end
+env.GetNumRaidMembers = function() return 0 end
+
 -- Duplicate count: ignored
 sentMessage = nil
 env.pfQuestAnnounce.OnQuestUpdate("Bandit slain: 1/5")
@@ -310,6 +323,14 @@ sentMessage = nil
 env.pfQuestAnnounce.AnnounceQuest(100, nil, true)
 assert(sentMessage ~= nil and string.find(sentMessage, "Quest Turned In", 1, true), "Turn-in wording must say Quest Turned In: got " .. tostring(sentMessage))
 assert(sentChannel == "PARTY", "AnnounceQuest must use PARTY channel")
+env.GetNumPartyMembers = function() return 0 end
+env.GetNumRaidMembers = function() return 10 end
+sentMessage = nil
+sentChannel = nil
+env.pfQuestAnnounce.AnnounceQuest(100, nil, false)
+assert(sentChannel == "PARTY", "Raid turn-in must stay on PARTY, got " .. tostring(sentChannel))
+env.GetNumPartyMembers = function() return 2 end
+env.GetNumRaidMembers = function() return 0 end
 print("  ✓ PASS: AnnounceQuest link and wording verified")
 
 print("test_epoch_features PASSED successfully!")

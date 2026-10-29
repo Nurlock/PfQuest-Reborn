@@ -1,21 +1,13 @@
-local function strsplit(delimiter, subject)
-  if not subject then
-    return nil
-  end
-  local delimiter, fields = delimiter or ":", {}
-  local pattern = string.format("([^%s]+)", delimiter)
-  string.gsub(subject, pattern, function(c)
-    fields[table.getn(fields) + 1] = c
-  end)
-  return unpack(fields)
-end
+-- Split helper lives in compat (compat/pfUI.lua); don't duplicate it here.
+local strsplit = pfUI and pfUI.api and pfUI.api.strsplit
 
-local channels = { "BATTLEGROUND", "RAID", "PARTY", "GUILD" }
+local lastBroadcast = 0
 local version, remote, major, minor, fix, displayed, available
 local versioncheck = CreateFrame("Frame")
 versioncheck:RegisterEvent("ADDON_LOADED")
 versioncheck:RegisterEvent("CHAT_MSG_ADDON")
 versioncheck:RegisterEvent("PARTY_MEMBERS_CHANGED")
+versioncheck:RegisterEvent("RAID_ROSTER_UPDATE")
 versioncheck:RegisterEvent("PLAYER_ENTERING_WORLD")
 versioncheck:SetScript("OnEvent", function()
   if event == "ADDON_LOADED" then
@@ -52,7 +44,7 @@ versioncheck:SetScript("OnEvent", function()
       if trusted then
         remote = remote and max(remote, remoteversion) or remoteversion
         if version and remote > version then
-          pfQuest_config.latest = remote
+          pfQuestConfig:SetLatest(remote)
         end
       end
     end
@@ -67,14 +59,18 @@ versioncheck:SetScript("OnEvent", function()
   end
 
   -- send updates only on initial login or group join
-  if version and (event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED") then
-    for _, chan in pairs(channels) do
-      SendAddonMessage("pfQReborn", "VERSION:" .. version, chan)
+  if version and (event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE") then
+    local now = (GetTime and GetTime()) or 0
+    if now - lastBroadcast >= 10 then
+      lastBroadcast = now
+      local grouped = (GetNumPartyMembers and GetNumPartyMembers() > 0) or (GetNumRaidMembers and GetNumRaidMembers() > 0)
+      local chan = grouped and "PARTY" or nil -- subgroup only, even in raids
+      if chan then SendAddonMessage("pfQReborn", "VERSION:" .. version, chan) end
     end
   end
 
   -- abort here on group member events
-  if event == "PARTY_MEMBERS_CHANGED" then
+  if event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
     return
   end
 

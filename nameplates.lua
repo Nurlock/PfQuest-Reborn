@@ -54,13 +54,8 @@ local function ScanQuestObjectives()
         local link = GetQuestLink(qid)
         questId = link and tonumber(string.match(link, "quest:(%d+)"))
       end
-      if not questId and pfQuest and pfQuest.questlog then
-        for qId, qData in pairs(pfQuest.questlog) do
-          if type(qId) == "number" and (qData.qlogid == qid or qData.title == questTitle) then
-            questId = qId
-            break
-          end
-        end
+      if not questId and pfQuest and pfQuest.GetIdByLog then
+        questId = pfQuest:GetIdByLog(qid, questTitle)
       end
       if not questId and questLoc then
         for qId, qData in pairs(questLoc) do
@@ -100,7 +95,13 @@ local function ScanQuestObjectives()
           if unitLoc and unitLoc[unitId] then
             local targetName = unitLoc[unitId]
 
-            for _, activeObj in ipairs(activeObjs) do
+            -- No counted objectives yet (quest just accepted, server has not
+            -- populated the leaderboards): everything is still needed.
+            local objectives = activeObjs
+            if table.getn(objectives) == 0 then
+              objectives = { { objective = targetName, current = 0, total = 1 } }
+            end
+            for _, activeObj in ipairs(objectives) do
               local objNameBase = activeObj.objective:gsub(" slain$", ""):gsub(" killed$", "")
               if objNameBase == targetName or string.find(activeObj.objective, targetName, 1, true) then
                 if activeObj.current < activeObj.total then
@@ -122,7 +123,12 @@ local function ScanQuestObjectives()
               if unitLoc and unitLoc[unitId] then
                 local npcName = unitLoc[unitId]
 
-                for _, activeObj in ipairs(activeObjs) do
+            -- Same fallback: unpopulated log means 0/x everywhere.
+            local objectives = activeObjs
+            if table.getn(objectives) == 0 and itemName then
+              objectives = { { objective = itemName, current = 0, total = 1 } }
+            end
+            for _, activeObj in ipairs(objectives) do
                   if itemName and string.find(activeObj.objective, itemName, 1, true) then
                     if activeObj.current < activeObj.total then
                       questObjectives[npcName] = bagIcon

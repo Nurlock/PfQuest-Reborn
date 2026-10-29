@@ -195,7 +195,7 @@ pfQuest.route.SetTarget = function(node, default)
     -- ("attempt to perform arithmetic on field 'queue_update'") and, because
     -- the throw lands BEFORE the line that clears the field, the flag stays
     -- true and map node updates stall for the rest of the session.
-    pfMap.queue_update = GetTime()
+    pfMap:RequestUpdate()
   end
 
   targetTitle = node and node.title or nil
@@ -220,9 +220,8 @@ pfQuest.route.IsTarget = function(node)
 end
 
 local lastpos, completed = 0, 0
-local function GetQuestSortMode()
-  return pfQuest_config["trackerquestsort"] == "distance" and "distance" or "level"
-end
+-- Shared with tracker.lua: defined once on pfQuest (quest.lua).
+local GetQuestSortMode = pfQuest.GetQuestSortMode
 -- Match tracker.lua's fallback behavior so missing route distances sort last
 -- without relying on math.huge on older clients.
 local DIST_FAR = 99999999
@@ -489,6 +488,11 @@ pfQuest.route.arrow:SetScript("OnShow", function()
     this:SetPoint(unpack(pfQuest_config.arrowpos))
   end
 end)
+
+-- Single visibility writer for the guidance arrow.
+function pfQuest.route:SetArrowVisible(v)
+  if v then self.arrow:Show() else self.arrow:Hide() end
+end
 
 local invalid, lasttarget, target
 local lastangle, lastt

@@ -15,14 +15,8 @@ local GetTime = GetTime
 local UnitLevel, UnitRace, UnitClass = UnitLevel, UnitRace, UnitClass
 local UnitFactionGroup, UnitName, UnitSex = UnitFactionGroup, UnitName, UnitSex
 
--- Ensure pfQuestConfig.path exists (fallback if config.lua failed to set it)
-if not pfQuestConfig then
-  pfQuestConfig = CreateFrame("Frame", "pfQuestConfig", UIParent)
-  pfQuestConfig:Hide()
-end
-if not pfQuestConfig.path then
-  pfQuestConfig.path = "Interface\\AddOns\\pfQuest-Reborn"
-end
+-- Config owns pfQuestConfig init (config.lua); just ensure the path lazily.
+if pfQuestConfig and pfQuestConfig.EnsurePath then pfQuestConfig:EnsurePath() end
 
 pfDB = pfDB or {
   ["areatrigger"] = {},
@@ -386,16 +380,14 @@ pfDatabase.itemlist:SetScript("OnUpdate", function()
   -- find new items
   for item in pairs(this.db) do
     if not previous[item] and this.registry[item] then
-      pfQuest.questlog[this.registry[item]] = nil
-      pfQuest:UpdateQuestlog()
+      pfQuest:DropQuestEntry(this.registry[item])
     end
   end
 
   -- find removed items
   for item in pairs(previous) do
     if not this.db[item] and this.registry[item] then
-      pfQuest.questlog[this.registry[item]] = nil
-      pfQuest:UpdateQuestlog()
+      pfQuest:DropQuestEntry(this.registry[item])
     end
   end
 
@@ -638,6 +630,15 @@ pfDatabase.Reload()
 -- Inverted quest title index: maps title → {id, id, ...} for instant O(1) questlog lookups.
 pfDatabase.nameIndex = {}
 pfDatabase.lastQuestGiversSet = {}
+
+-- Single writers for the giver-diff set (quest.lua invalidates through these).
+function pfDatabase:InvalidateGiver(id)
+  self.lastQuestGiversSet[id] = nil
+end
+
+function pfDatabase:ClearGiverSet()
+  for id in pairs(self.lastQuestGiversSet) do self.lastQuestGiversSet[id] = nil end
+end
 
 -- Pre-computed set of quest IDs that will never pass QuestFilter for this character.
 pfDatabase.staticRejectSet = {}
@@ -1867,12 +1868,12 @@ function pfDatabase:SearchQuestID(id, meta, maps)
 
   -- clear previous unified quest nodes
   if meta.quest then
-    pfMap.unifiedcache[meta.quest] = {}
+    pfMap:ClearUnifiedCache(meta.quest)
   end
 
   if pfQuest_config["currentquestgivers"] == "1" then
     -- search quest-starter
-    if quests[id]["start"] and not meta["qlogid"] then
+    if quests[id]["start"] and not meta["qlogid"] and meta["addon"] ~= "PARTY" then
       -- units
       if quests[id]["start"]["U"] then
         for _, unit in pairs(quests[id]["start"]["U"]) do
@@ -1901,7 +1902,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
     end
 
     -- search quest-ender
-    if quests[id]["end"] then
+    if quests[id]["end"] and meta["addon"] ~= "PARTY" then
       -- compute complete state once, outside both ender loops
       local ender_texture
       if meta["qlogid"] then
@@ -1909,8 +1910,8 @@ function pfDatabase:SearchQuestID(id, meta, maps)
         complete = complete or GetNumQuestLeaderBoards(meta["qlogid"]) == 0 and true or nil
         ender_texture = (complete == true or complete == 1) and pfQuestConfig.path .. "\\img\\complete_c"
           or pfQuestConfig.path .. "\\img\\complete"
-      else
-        ender_texture = pfQuestConfig.path .. "\\img\\complete_c"
+        else
+          ender_texture = pfQuestConfig.path .. "\\img\\complete_c"
       end
 
       -- units
@@ -2042,70 +2043,19 @@ function pfDatabase:SearchQuestID(id, meta, maps)
     end
   end
 
-  -- Reforged: Questie party quest objectives completion parsing
-  if meta and meta["addon"] == "PARTY" and meta["partyMember"] and pfQuest and pfQuest.partyQuests then
-    local pQuests = pfQuest.partyQuests[meta["partyMember"]]
-    local pQuest = pQuests and pQuests[id]
-    if pQuest and pQuest.objectives and quests[id] and quests[id]["obj"] then
-      local q_obj = quests[id]["obj"]
-      for _, obj in pairs(pQuest.objectives) do
-        local ful = tonumber(obj.fulfilled or obj.ful or obj.Collected or obj.numFulfilled) or 0
-        local req = tonumber(obj.required or obj.req or obj.Needed or obj.numRequired) or 1
-        local isDone = (obj.finished ~= nil and obj.finished)
-          or (obj.fin ~= nil and obj.fin)
-          or (obj.Finished ~= nil and obj.Finished)
-          or (obj.Completed ~= nil and obj.Completed)
-          or (ful >= req)
-        local status = isDone and "DONE" or "PROG"
-        local objType = obj.type or obj.typ or obj.Type or "m"
-        if type(objType) == "string" then
-          local low = string.lower(objType)
-          if low == "monster" or low == "creature" or low == "m" then
-            objType = "m"
-          elseif low == "item" or low == "i" then
-            objType = "i"
-          elseif low == "object" or low == "gameobject" or low == "o" then
-            objType = "o"
-          end
-        else
-          objType = "m"
-        end
-
-        local objId = obj.id or obj.Id
-        if objId and objId > 0 then
-          if objType == "m" and parse_obj["U"] then
-            parse_obj["U"][objId] = status
-          elseif objType == "i" and parse_obj["I"] then
-            parse_obj["I"][objId] = status
-          elseif objType == "o" and parse_obj["O"] then
-            parse_obj["O"][objId] = status
-          end
-        end
-
-        local text = obj.text or obj.desc or obj.name or obj.Description or obj.Text
-        if text and text ~= "" then
-          if objType == "m" and q_obj["U"] and pfDB.units and pfDB.units.loc then
-            for _, uid in ipairs(q_obj["U"]) do
-              if pfDB.units.loc[uid] and (strfind(text, pfDB.units.loc[uid], 1, true) or strfind(pfDB.units.loc[uid], text, 1, true)) then
-                parse_obj["U"][uid] = status
-              end
-            end
-          elseif objType == "i" and q_obj["I"] and pfDB.items and pfDB.items.loc then
-            for _, iid in ipairs(q_obj["I"]) do
-              if pfDB.items.loc[iid] and (strfind(text, pfDB.items.loc[iid], 1, true) or strfind(pfDB.items.loc[iid], text, 1, true)) then
-                parse_obj["I"][iid] = status
-              end
-            end
-          elseif objType == "o" and q_obj["O"] and pfDB.objects and pfDB.objects.loc then
-            for _, oid in ipairs(q_obj["O"]) do
-              if pfDB.objects.loc[oid] and (strfind(text, pfDB.objects.loc[oid], 1, true) or strfind(pfDB.objects.loc[oid], text, 1, true)) then
-                parse_obj["O"][oid] = status
-              end
-            end
-          end
-        end
+  -- Party quests have no qlogid; mirror the sender's progress into parse_obj
+  -- with the same DONE/PROG values so finished objectives filter out.
+  if meta["partyDone"] and quests[id]["obj"] then
+    local q_obj = quests[id]["obj"]
+    local function markDone(kind, ids, locTbl)
+      if not ids or not locTbl then return end
+      for _, x in pairs(ids) do
+        if locTbl[x] and meta.partyDone[locTbl[x]] then parse_obj[kind][x] = "DONE" end
       end
     end
+    markDone("U", q_obj["U"], pfDB.units and pfDB.units.loc)
+    markDone("O", q_obj["O"], pfDB.objects and pfDB.objects.loc)
+    markDone("I", q_obj["I"], pfDB.items and pfDB.items.loc)
   end
 
   -- search quest-objectives
@@ -2246,31 +2196,28 @@ function pfDatabase:SearchQuestID(id, meta, maps)
   local addon = meta["addon"] or "PFDB"
   local cacheKey = meta.quest and meta.questid
     and (meta.quest .. "\1" .. tostring(meta.questid)) or meta.quest
-  if pfMap.nodes[addon] then
-    for map in pairs(pfMap.nodes[addon]) do
-      if meta.quest and pfMap.unifiedcache[cacheKey] and pfMap.unifiedcache[cacheKey][map] then
-        for hash, data in pairs(pfMap.unifiedcache[cacheKey][map]) do
-          meta = data.meta
-          meta["title"] = meta["title"] or meta["quest"]
-          meta["cluster"] = true
-          meta["zone"] = map
+  if meta.quest then
+    for _, cluster in ipairs(pfMap:GetClusterData(addon, cacheKey)) do
+      local data, map, hash = cluster.data, cluster.map, cluster.hash
+      meta = data.meta
+      meta["title"] = meta["title"] or meta["quest"]
+      meta["cluster"] = true
+      meta["zone"] = map
 
-          local icon = pfQuest_config["clustermono"] == "1" and "_mono" or ""
+      local icon = pfQuest_config["clustermono"] == "1" and "_mono" or ""
 
-          if meta.item then
-            meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
-            meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_item" .. icon
-            pfMap:AddNode(meta, true)
-          elseif meta.spawntype and meta.spawntype == pfQuest_Loc["Unit"] and meta.spawn and not meta.itemreq then
-            meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
-            meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_mob" .. icon
-            pfMap:AddNode(meta, true)
-          else
-            meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
-            meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_misc" .. icon
-            pfMap:AddNode(meta, true)
-          end
-        end
+      if meta.item then
+        meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
+        meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_item" .. icon
+        pfMap:AddNode(meta, true)
+      elseif meta.spawntype and meta.spawntype == pfQuest_Loc["Unit"] and meta.spawn and not meta.itemreq then
+        meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
+        meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_mob" .. icon
+        pfMap:AddNode(meta, true)
+      else
+        meta["x"], meta["y"], meta["priority"] = getcluster(data.coords, meta["quest"] .. hash .. map)
+        meta["texture"] = pfQuestConfig.path .. "\\img\\cluster_misc" .. icon
+        pfMap:AddNode(meta, true)
       end
     end
   end
@@ -2713,7 +2660,7 @@ function pfDatabase:GetQuestIDs(qid)
   -- always make sure the quest-cache exists
   pfQuest_questcache = pfQuest_questcache or {}
 
-  if pfQuest_questcache[identifier] and pfQuest_questcache[identifier][1] then
+  if pfQuest_questcache[identifier] then
     return pfQuest_questcache[identifier]
   end
 
@@ -3018,14 +2965,12 @@ local function OnQuestQueryComplete(self)
     local total, new = 0, 0
     for questID, _ in pairs(completedQuests) do
       total = total + 1
-      if not pfQuest_history[questID] then new = new + 1 end
-      pfQuest_history[questID] = { time(), UnitLevel("player") }
+      local hkey = tonumber(questID) or questID
+      if not pfQuest_history[hkey] then new = new + 1 end
+      pfQuest_history[hkey] = { time(), UnitLevel("player") }
     end
 
-    -- Mark journal dirty when history changes
-    if pfJournal then
-      pfJournal.dirty = true
-    end
+    if pfJournal and pfJournal.MarkDirty then pfJournal:MarkDirty() end
 
     -- Auto-close mutually exclusive quests
     local closed = 0

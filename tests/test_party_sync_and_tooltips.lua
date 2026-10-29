@@ -1,11 +1,11 @@
 -- Test Suite: Pure pfQuest-epoch Party Sync & Tooltips
--- Verifies pfqe protocol (V1 batches, REMOVEQ, PFQUEST_SYNC_REQUEST), raid support, and tooltips.
+-- Verifies pfqe protocol (V1 batches, REMOVEQ), PARTY-only routing, and tooltips.
 
 local mock = require("tests.mock_wow_api")
 local env = mock.create_env()
 env.UnitInParty = function(u)
   return u == "PartyFriend" or u == "EpochFriend" or u == "IdFriend"
-      or u == "ColonFriend" or u == "BurstFriend" or u == "WireFriend"
+      or u == "ColonFriend" or u == "BurstFriend" or u == "WireFriend" or u == "BatchFriend" or u == "GoldFriend"
       or nil
 end
 env.UnitInRaid = function(u) return nil end
@@ -95,6 +95,7 @@ env.pfDB.quests.data[100] = {
 env.pfDB.units = env.pfDB.units or { loc = {} }
 env.pfDB.units.loc[240] = "Marshal Dughan"
 env.pfDB.units.loc[116] = "Defias Bandit"
+env.pfDB.units.loc[241] = "Goldshire Guard"
 env.pfDatabase = env.pfDatabase or {}
 local searchedQuestIds = {}
 env.pfDatabase.SearchQuestID = function(self, qid, meta)
@@ -112,10 +113,11 @@ end
 env.UnitIsPlayer = function(u) return false end
 
 -- Load pure pfQuest-epoch tooltip and comms module
-load_file("pfQuest-tooltip.lua")
+load_file("party.lua")
+load_file("partytooltip.lua")
 
-local epoch = env.pfQuest.epochComms
-assert(epoch, "pfQuest.epochComms must be loaded")
+local epoch = env.pfQuest.partyapi
+assert(epoch, "pfQuest.partyapi must be loaded")
 epoch.HookGameTooltip()
 
 print("[TEST] 1. Verifying inbound pfqe V1 batch message...")
@@ -185,37 +187,60 @@ for _, msg in ipairs(sentAddonMessages) do
   end
 end
 assert(foundOutboundV1, "ShareQuestData must broadcast V1 entry for U116Q100:3:10;")
-print("  ✓ PASS: Outbound pfqe quest update correctly formatted and transmitted")
+print("  \u2713 PASS: Outbound pfqe quest update correctly formatted and transmitted")
 
-print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST inbound triggers response...")
+print("[TEST] 4b. Verifying abandon prunes our own mirror...")
+assert(epoch.partyQuestData["LocalPlayer"] ~= nil, "self-echo must exist after share")
+env.GetNumQuestLogEntries = function() return 0 end
+epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
+sentAddonMessages = {}
+epoch.ShareQuestData(true)
+assert(epoch.partyQuestData["LocalPlayer"] == nil, "abandoned quest must leave our mirror")
+local foundRemove = false
+for _, msg in ipairs(sentAddonMessages) do
+  if msg.prefix == "pfqe" and string.find(msg.text, "^REMOVEQ:100:Defias Hunt") then foundRemove = true end
+end
+assert(foundRemove, "abandon must broadcast REMOVEQ to peers")
+env.GetNumQuestLogEntries = function() return 1 end
+epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
+print("  \u2713 PASS: Abandon prunes our mirror and notifies peers")
+
+print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST is ignored (no handshake)...")
 sentAddonMessages = {}
 env.arg1 = "PFQUEST_SYNC_REQUEST"
 env.arg2 = "1"
 env.arg3 = "PARTY"
 env.arg4 = "PartyFriend"
 epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "PartyFriend")
+assert(#sentAddonMessages == 0, "sync requests must not trigger a response (handshake removed)")
+print("  ✓ PASS: PFQUEST_SYNC_REQUEST ignored")
 
-local syncReplied = false
+print("[TEST] 5b. Verifying login sends one pull request...")
+env.GetNumRaidMembers = function() return 0 end
+sentAddonMessages = {}
+epoch.eventFrame:FireScript("OnEvent", "PLAYER_ENTERING_WORLD")
+local reqCount, shareCount = 0, 0
 for _, msg in ipairs(sentAddonMessages) do
-  if msg.prefix == "pfqe" and string.find(msg.text, "V1|") then
-    syncReplied = true
-  end
+  if msg.prefix == "PFQUEST_SYNC_REQUEST" and msg.dist == "PARTY" then reqCount = reqCount + 1 end
+  if msg.prefix == "pfqe" then shareCount = shareCount + 1 end
 end
-assert(syncReplied, "PFQUEST_SYNC_REQUEST from party member must trigger full quest list broadcast on pfqe")
-print("  ✓ PASS: Inbound PFQUEST_SYNC_REQUEST triggers pfqe broadcast")
+assert(reqCount == 1, "login must send exactly one sync pull request, got " .. reqCount)
+assert(shareCount >= 1, "login must also push our full state")
+print("  ✓ PASS: Login pulls once and pushes full state")
 
-print("[TEST] 6. Verifying raid distribution routing...")
+print("[TEST] 6. Verifying raid traffic stays on PARTY (flood safety)...")
 env.GetNumRaidMembers = function() return 10 end
 sentAddonMessages = {}
 epoch.ShareQuestData(true)
 local foundRaidMsg = false
 for _, msg in ipairs(sentAddonMessages) do
-  if msg.prefix == "pfqe" and msg.dist == "RAID" then
+  if msg.prefix == "pfqe" then
+    assert(msg.dist == "PARTY", "no pfqe traffic may use RAID, got " .. tostring(msg.dist))
     foundRaidMsg = true
   end
 end
-assert(foundRaidMsg, "ShareQuestData must route to RAID channel when in a raid")
-print("  ✓ PASS: Raid distribution cleanly routed to RAID channel")
+assert(foundRaidMsg, "ShareQuestData must send on PARTY even in a raid")
+print("  ✓ PASS: Raid traffic stays on PARTY (subgroup, Epoch parity)")
 
 print("[TEST] 7. Verifying config toggles...")
 env.pfQuest_config["epochgroupsync"] = "0"
@@ -372,6 +397,56 @@ epoch.PumpSyncTimers()
 assert(burstCurrent() == 7, "queued newest batch must flush after throttle window")
 print("  ✓ PASS: Throttle queues newest batch and flushes it")
 
+print("[TEST] 16b. Verifying multi-batch bursts all arrive in order...")
+-- three back-to-back batches (e.g. a split full-sync): first applies,
+-- the rest queue as a list, then flush in order via the frame ticker alone
+-- (no further events fired).
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U116Q100:1:10;", "PARTY", "BatchFriend")
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U240Q100:2:10;", "PARTY", "BatchFriend")
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "pfqe", "V1|U241Q100:3:10;", "PARTY", "BatchFriend")
+local function batchCount()
+  local n = 0
+  local d = epoch.partyQuestData["BatchFriend"]
+  if d then for _, quests in pairs(d) do n = n + table.getn(quests) end end
+  return n
+end
+assert(batchCount() >= 1, "first batch of burst must apply immediately")
+env.AdvanceTime(2)
+-- ticker only: proves the flush does not depend on another event arriving
+epoch.eventFrame:FireScript("OnUpdate")
+assert(batchCount() == 3, "all three queued batches must flush in order, got " .. batchCount())
+print("  ✓ PASS: Multi-batch bursts flush fully via ticker")
+
+print("[TEST] 16c. Verifying shared map carries objectives only...")
+local function lastPartyMeta()
+  for i = table.getn(searchedQuestIds), 1, -1 do
+    if searchedQuestIds[i].meta and searchedQuestIds[i].meta.addon == "PARTY" then
+      return searchedQuestIds[i].meta
+    end
+  end
+end
+-- 0/10 and 10/10: completion state must never be shared, so no
+-- ender/starter logic can key off it; finished targets still blacklist.
+epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:0:10;")
+local m0 = lastPartyMeta()
+assert(m0 and m0.partyComplete == nil, "PARTY meta must not carry completion state")
+assert(not m0.partyDone or not m0.partyDone["Defias Bandit"], "0/10 target must not be marked done")
+env.AdvanceTime(2)
+epoch.PumpSyncTimers()
+epoch.ProcessQuestData("GoldFriend", "V1|U116Q100:10:10;")
+local m1 = lastPartyMeta()
+assert(m1 and m1.partyComplete == nil, "PARTY meta must not carry completion state")
+assert(m1.partyDone and m1.partyDone["Defias Bandit"], "10/10 target must be marked done")
+print("  ✓ PASS: Shared map is objectives-only")
+
+print("[TEST] 19. Verifying periodic full re-sync while grouped...")
+sentAddonMessages = {}
+epoch.RebuildQuestMappings()
+env.AdvanceTime(400)
+epoch.PumpSyncTimers()
+assert(#sentAddonMessages > 0, "idle grouped client must full-share every few minutes")
+print("  ✓ PASS: Periodic full re-sync fires")
+
 print("[TEST] 17. Verifying QUEST_LOG_UPDATE is debounced...")
 sentAddonMessages = {}
 env.AdvanceTime(30)
@@ -383,5 +458,31 @@ epoch.PumpSyncTimers()
 local afterDebounce = #sentAddonMessages
 assert(afterDebounce >= 0, "debounced flush must run without error")
 print("  ✓ PASS: QUEST_LOG_UPDATE debounced")
+
+print("[TEST] 18. Verifying DeleteNodesWhere cleans every index...")
+local pfMap = env.pfMap
+assert(pfMap.DeleteNodesWhere ~= nil, "map must expose DeleteNodesWhere")
+pfMap:AddNode({ addon = "PARTY", zone = 1, x = 0.5, y = 0.5,
+  title = "Defias Hunt (WireFriend)", quest = "Defias Hunt", questid = 100 })
+pfMap:AddNode({ addon = "PARTY", zone = 1, x = 0.6, y = 0.6,
+  title = "Other Quest (WireFriend)", quest = "Other Quest", questid = 200 })
+assert(pfMap.nodes["PARTY"] ~= nil, "setup: PARTY nodes must exist")
+local dead = "Defias Hunt (WireFriend)"
+local wiped = pfMap:DeleteNodesWhere("PARTY", function(title)
+  return title == dead or string.sub(title, 1, string.len(dead) + 1) == dead .. "\1"
+end)
+assert(wiped == true, "DeleteNodesWhere must report removals")
+assert(pfMap.titleIndex["PARTY"] == nil or pfMap.titleIndex["PARTY"]["Defias Hunt"] == nil,
+  "title index must not keep the deleted title")
+local leftover = false
+for _, coords in pairs(pfMap.nodes["PARTY"][1] or {}) do
+  for title in pairs(coords) do
+    if title == dead or string.sub(title, 1, string.len(dead) + 1) == dead .. "\1" then leftover = true end
+  end
+end
+assert(leftover == false, "nodes store must not keep the deleted title")
+assert(pfMap:DeleteNodesWhere("PARTY", function() return false end) == false,
+  "DeleteNodesWhere must report no-ops")
+print("  ✓ PASS: DeleteNodesWhere removes title + indexes")
 
 print("\ntest_party_sync_and_tooltips PASSED successfully!")

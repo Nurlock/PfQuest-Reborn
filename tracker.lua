@@ -66,11 +66,14 @@ local function ShowTooltip()
   end
 end
 
+-- Tracker-local mark for mode-5 zone nodes. Kept here (weak keys) instead of
+-- stamping map-owned node tables.
+local mode5shown = setmetatable({}, { __mode = "k" })
+
 local expand_states = {}
 
-local function GetQuestSortMode()
-  return pfQuest_config["trackerquestsort"] == "distance" and "distance" or "level"
-end
+-- Shared with route.lua: defined once on pfQuest (quest.lua).
+local GetQuestSortMode = pfQuest.GetQuestSortMode
 
 -- Old-client Lua can misbehave with math.huge in sort fallbacks; use a plain
 -- numeric sentinel so "no distance" always sorts last without nil comparisons.
@@ -346,11 +349,8 @@ do -- button panel
     UpdateSortButton()
     tracker.needsSort = true
     tracker.distanceTick = 0
-    if pfQuest.route then
-      pfQuest.route.recalculate = nil
-      pfQuest.route.firstnode = nil
-    end
-    pfMap.queue_update = GetTime()
+    if pfQuest.route and pfQuest.route.Reset then pfQuest.route:Reset() end
+    pfMap:RequestUpdate()
   end)
 
   tracker.btnclose = CreateButton("close", "TOPRIGHT", pfQuest_Loc["Close Tracker"], function()
@@ -379,12 +379,12 @@ do -- button panel
 end
 
 function tracker.ButtonEnter()
-  pfMap.highlight = this.title
+  pfMap:SetHighlight(this.title)
   ShowTooltip()
 end
 
 function tracker.ButtonLeave()
-  pfMap.highlight = nil
+  pfMap:SetHighlight(nil)
   HideTooltip()
 end
 
@@ -435,7 +435,7 @@ function tracker.ButtonClick()
     -- mark as done if node is quest and not in questlog
     if this.node.questid and not this.node.qlogid then
       -- mark as done in history
-      pfQuest_history[this.node.questid] = { time(), UnitLevel("player") }
+      pfQuest_history[tonumber(this.node.questid) or this.node.questid] = { time(), UnitLevel("player") }
       UIErrorsFrame:AddMessage(
         string.format("The Quest |cffffcc00[%s]|r (id:%s) is now marked as done.", this.title, this.node.questid),
         1,
@@ -447,7 +447,7 @@ function tracker.ButtonClick()
     pfMap:DeleteNode(this.node.addon, this.title)
     pfMap:UpdateNodes()
 
-    pfQuest.updateQuestGivers = true
+    pfQuest:FlagGiverUpdate()
   elseif IsControlKeyDown() and not WorldMapFrame:IsShown() then
     -- show world map
     if ToggleWorldMap then
@@ -459,8 +459,7 @@ function tracker.ButtonClick()
     end
   elseif IsControlKeyDown() and pfQuest_config["spawncolors"] == "0" then
     -- switch color
-    pfQuest_colors[this.title] = { pfMap.str2rgb(this.title .. GetTime()) }
-    pfMap:UpdateNodes()
+    pfMap:CyclePinColor(this.title)
   elseif expand_states[this.title] == 0 then
     expand_states[this.title] = 1
     tracker.ButtonEvent(this)
@@ -534,7 +533,7 @@ function tracker.ButtonEvent(self)
   end
 
   -- update button icon
-  if node.mode5local then
+  if mode5shown[node] then
     self.icon:SetTexture(pfQuestConfig.path .. "\\img\\node")
     self.icon:SetVertexColor(pfMap.str2rgb(title))
   elseif node.texture then
@@ -802,7 +801,7 @@ function tracker.RefreshZoneTracker()
     if qtitle == data.title and IsQuestWatched(data.qlogid) then
       seen[qid] = true
       if localQuestNodes[qid] then
-        localQuestNodes[qid].mode5local = true
+        mode5shown[localQuestNodes[qid]] = true
         tracker.ButtonAdd(data.title, localQuestNodes[qid])
       else
         local img = complete and pfQuestConfig.path .. "\\img\\complete_c"
@@ -822,7 +821,7 @@ function tracker.RefreshZoneTracker()
       local qtitle = data and compat.GetQuestLogTitle(data.qlogid)
       if data and qtitle == data.title then
         seen[qid] = true
-        node.mode5local = true
+        mode5shown[node] = true
         tracker.ButtonAdd(data.title, node)
       end
     end
@@ -841,7 +840,7 @@ function tracker.ButtonAdd(title, node)
   -- Mode 5: only block real quest nodes from UpdateNodes while the quest tab
   -- is active. Other tracker tabs still need real nodes to populate.
   if tracker.mode == "QUEST_TRACKING" and pfQuest_config["trackingmethod"] == 5
-     and not node.dummy and not node.mode5local then
+     and not node.dummy and not mode5shown[node] then
     return
   end
 

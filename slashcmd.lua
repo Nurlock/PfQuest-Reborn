@@ -74,7 +74,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: debug
   if arg1 == "debug" then
-    pfQuest_config.debug = not pfQuest_config.debug
+    pfQuestConfig:Toggle("debug")
     DEFAULT_CHAT_FRAME:AddMessage(
       "|cff33ffccpf|cffffffffQuest Debug Mode: " .. (pfQuest_config.debug and "|cff33ff33ON" or "|cffff3333OFF")
     )
@@ -120,7 +120,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
   -- argument: quests
   if arg1 == "quests" then
     local maps = pfDatabase:SearchQuests(meta)
-    pfMap.queue_update = GetTime()
+    pfMap:RequestUpdate()
     return
   end
 
@@ -322,7 +322,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: lock
   if arg1 == "lock" then
-    pfQuest_config.lock = not pfQuest_config.lock
+    pfQuestConfig:Toggle("lock")
     DEFAULT_CHAT_FRAME:AddMessage(
       "|cff33ffccpf|cffffffffQuest Tracker: " .. (pfQuest_config.lock and "Locked" or "Unlocked")
     )
@@ -339,12 +339,9 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: arrow
   if arg1 == "arrow" then
-    if pfQuest_config["arrow"] == "1" then
-      pfQuest_config["arrow"] = "0"
-      pfQuest.route.arrow:Hide()
-    else
-      pfQuest_config["arrow"] = "1"
-    end
+    local off = pfQuest_config["arrow"] == "1"
+    pfQuestConfig:Set("arrow", off and "0" or "1")
+    pfQuest.route:SetArrowVisible(not off)
     return
   end
 
@@ -376,10 +373,146 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: <text>
   if type(arg1) == "string" then
-    if pfBrowser then
-      pfBrowser:Show()
-      pfBrowser.input:SetText((string.gsub(string.format("%s %s", arg1, arg2), "^%s*(.-)%s*$", "%1")))
+    if pfBrowser and pfBrowser.SearchText then
+      pfBrowser:SearchText(string.gsub(string.format("%s %s", arg1, arg2), "^%s*(.-)%s*$", "%1"))
     end
     return
   end
+end
+
+-- Party sync debug commands (partyapi lives in party.lua;
+-- resolved inside the handlers so load order never matters).
+SLASH_PFQUESTDEBUG1 = "/pfqd"
+SlashCmdList["PFQUESTDEBUG"] = function(msg)
+    if not (pfQuest_config and pfQuest_config.debug) then
+        print("|cff33ffccpf|cffffffffQuest:|r Debug commands are disabled.")
+        return
+    end
+    local epoch = pfQuest.partyapi
+    print("|cff33ffccpf|cffffffffQuest Debug:|r")
+    print("=== Addon Status ===")
+    print("pfQuest loaded: " .. tostring(IsAddOnLoaded("pfQuest")))
+    print("pfQuest-epoch loaded: " .. tostring(IsAddOnLoaded("pfQuest-epoch")))
+    print("pfDB exists: " .. tostring(pfDB ~= nil))
+    if pfDB then
+        print("  pfDB.quests exists: " .. tostring(pfDB.quests ~= nil))
+        if pfDB.quests then
+            print("  pfDB.quests.data exists: " .. tostring(pfDB.quests.data ~= nil))
+        end
+    end
+    print("pfQuestCompat exists: " .. tostring(pfQuestCompat ~= nil))
+    print("pfMap exists: " .. tostring(pfMap ~= nil))
+
+    print("=== Party Status ===")
+    print("Party members: " .. (GetNumPartyMembers and GetNumPartyMembers() or 0))
+    print("Feature enabled: " .. tostring(epoch and epoch.IsTooltipEnabled()))
+
+    print("=== Quest Data ===")
+    local myMaps = (epoch and epoch.myQuestMappings) or {}
+    local count = 0
+    for _ in pairs(myMaps) do count = count + 1 end
+    print("myQuestMappings targets: " .. count)
+
+    for targetKey, quests in pairs(myMaps) do
+        print("  |cffffcc00Target:|r " .. targetKey)
+        for _, data in ipairs(quests) do
+            print("    - " .. data.quest .. ": " .. data.objective .. " (" .. data.current .. "/" .. data.total .. ")")
+        end
+    end
+
+    local partyData = (epoch and epoch.partyQuestData) or {}
+    local partyCount = 0
+    for _ in pairs(partyData) do partyCount = partyCount + 1 end
+    print("partyQuestData players: " .. partyCount)
+
+    for playerName, targets in pairs(partyData) do
+        print("  |cff00ff00Player:|r " .. playerName)
+        for targetKey, quests in pairs(targets) do
+            print("    |cffffcc00Target:|r " .. targetKey)
+            for _, data in ipairs(quests) do
+                print("      - " .. data.quest .. ": " .. data.objective .. " (" .. data.current .. "/" .. data.total .. ")")
+            end
+        end
+    end
+
+    if count == 0 and partyCount == 0 then
+        print("|cffff0000No quest data found!|r Try killing a quest mob or running /pfqd after joining a party.")
+    end
+end
+
+SLASH_PFQUEREBUILD1 = "/pfqrebuild"
+SlashCmdList["PFQUEREBUILD"] = function(msg)
+    if not (pfQuest_config and pfQuest_config.debug) then
+        print("|cff33ffccpf|cffffffffQuest:|r Debug commands are disabled.")
+        return
+    end
+    local epoch = pfQuest.partyapi
+    print("|cff33ffccpf|cffffffffQuest:|r Manually triggering RebuildQuestMappings...")
+    if epoch then epoch.RebuildQuestMappings() end
+    if epoch and epoch.IsInGroup() and epoch.IsSyncEnabled() then
+        print("|cff33ffccpf|cffffffffQuest:|r Sharing data...")
+        epoch.ShareQuestData(true)
+    end
+    print("|cff33ffccpf|cffffffffQuest:|r Done! Run /pfqd to see results.")
+end
+
+SLASH_PFQUESTFIND1 = "/pfqfind"
+SlashCmdList["PFQUESTFIND"] = function(msg)
+    if not (pfQuest_config and pfQuest_config.debug) then
+        print("|cff33ffccpf|cffffffffQuest:|r Debug commands are disabled.")
+        return
+    end
+    print("|cff33ffccpf|cffffffffQuest:|r Checking pfDB structure...")
+
+    if not pfDB then
+        print("  |cffff0000pfDB does not exist!|r")
+        return
+    end
+
+    print("  pfDB exists: |cff00ff00YES|r")
+    print("  pfDB contains:")
+    for k, v in pairs(pfDB) do
+        if type(v) == "table" then
+            local count = 0
+            for _ in pairs(v) do
+                count = count + 1
+                if count > 1000 then break end
+            end
+            if k == "data" then
+                print("    - " .. k .. " (table with " .. count .. "+ entries)")
+            else
+                print("    - " .. k .. " (table)")
+            end
+        end
+    end
+end
+
+SLASH_PFQUESTAPI1 = "/pfqapi"
+SlashCmdList["PFQUESTAPI"] = function(msg)
+    if not (pfQuest_config and pfQuest_config.debug) then
+        print("|cff33ffccpf|cffffffffQuest:|r Debug commands are disabled.")
+        return
+    end
+    print("|cff33ffccpf|cffffffffQuest:|r Checking pfQuest API...")
+    if pfDB and pfDB.quests and pfDB.quests.data and pfDB.quests.data[7] then
+        print("\nQuest ID 7 full structure:")
+        for k, v in pairs(pfDB.quests.data[7]) do
+            if type(v) == "table" then
+                print("  [\"" .. tostring(k) .. "\"] = {")
+                for k2, v2 in pairs(v) do
+                    print("    [\"" .. tostring(k2) .. "\"] = " .. tostring(v2))
+                end
+                print("  }")
+            else
+                print("  [\"" .. tostring(k) .. "\"] = " .. tostring(v))
+            end
+        end
+    end
+
+    print("\npfDB.quests keys:")
+    if pfDB and pfDB.quests then
+        for k, v in pairs(pfDB.quests) do
+            print("  " .. k .. " (" .. type(v) .. ")")
+        end
+    end
 end
