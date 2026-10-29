@@ -172,8 +172,8 @@ assert(arrowScaleFrame.input:IsMouseEnabled() == false, "arrowscale slider mouse
 -- Disable all routes
 routesFrame.input:SetChecked(false)
 routesFrame.input:FireScript("OnClick")
-assert(arrowFrame.enabled == false, "arrow must be disabled when routes=0")
-assert(arrowScaleFrame.enabled == false, "arrowscale must remain disabled when routes=0")
+assert(arrowFrame.enabled == true, "arrow must stay enabled when routes=0 (own Navigation category)")
+assert(arrowScaleFrame.enabled == false, "arrowscale must remain disabled when arrow=0")
 print("  ✓ PASS: Routes hierarchy and slider disabling verified")
 
 print("test_config_dependencies PASSED successfully!")
