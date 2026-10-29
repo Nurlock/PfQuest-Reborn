@@ -1,6 +1,6 @@
 # pfQuest Reborn
 
-A standalone edition of [pfQuest](https://github.com/shagu/pfQuest) for WoW 3.3.5a, combining UI refinements from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) and Project Epoch data/tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch), with added Questie party synchronization.
+A small community fork of [pfQuest](https://github.com/shagu/pfQuest) for WoW 3.3.5a, borrowing UI work from [pfQuest-Reforged](https://github.com/stevemcqueenz/pfQuest-Reforged) and data/tooling from [pfQuest-epoch](https://github.com/Bennylavaa/pfQuest-epoch), plus Questie party sync. Far from perfect — standing on their work.
 
 ---
 
@@ -22,7 +22,7 @@ A standalone edition of [pfQuest](https://github.com/shagu/pfQuest) for WoW 3.3.
 
 - **UI & Performance**:
   - Flat dark theme with tracker progress bars from pfQuest-Reforged.
-  - Batched map updates and cached lookups to avoid lag spikes during party play.
+  - Batched map updates and cached lookups to try to keep lag down during party play.
   - Basic theme adaptation when GW2 UI or pfUI is installed.
 
 ---
@@ -59,7 +59,7 @@ A standalone edition of [pfQuest](https://github.com/shagu/pfQuest) for WoW 3.3.
 
 ## Changing Database Flavors
 
-`pfQuest-Reborn` ships with Project Epoch database tables by default. To swap the active database flavor to standard Vanilla, TBC, or WotLK using the `pfquest-db` CLI tool:
+`pfQuest-Reborn` ships with Project Epoch database tables by default. To swap the active database flavor to standard Vanilla, TBC, or WotLK using the [`pfquest-db`](https://github.com/Nurlock/PfQuest-db) CLI tool:
 
 ```bash
 # Export desired database flavor into your addon directory:
@@ -83,6 +83,10 @@ lua5.1 tests/run_all_tests.lua
 Tests cover questgiver lifecycle, objective parsing, metadata isolation, node cleanup, party synchronization, and setup popup states.
 
 ---
+
+## Known Rough Edges
+
+Party sync, quest history, and tooltips still have edge cases. Bug reports and fixes welcome.
 
 ## Credits & Citations
 

@@ -85,12 +85,31 @@ jobs:
           # Stamp the version into every toc so addon managers show it.
           sed -i "s/^## Version:.*/## Version: ${{ steps.ver.outputs.version }}/" dist/pfQuest-Reborn/*.toc
 
-      - name: Zip
-        run: |
-          cd dist
-          zip -r -q "pfQuest-Reborn-${{ steps.ver.outputs.tag }}.zip" pfQuest-Reborn
-          ls -la
+      - name: Fetch pfquest-db (DB flavors)
+        uses: actions/checkout@v4
+        with:
+          repository: Nurlock/PfQuest-db
+          path: pfquest-db
 
+      - name: Build flavor zips (epoch/vanilla/tbc/wotlk)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends python3-pip
+          pip3 install --break-system-packages ./pfquest-db
+          TAG="${{ steps.ver.outputs.tag }}"
+          for flavor in epoch vanilla tbc wotlk; do
+            pkg="dist/pfQuest-Reborn-$flavor"
+            rm -rf "$pkg"; cp -r dist/pfQuest-Reborn "$pkg"
+            if [ "$flavor" != "epoch" ]; then
+              # ponytail: assumes pfquest-db ships ref/<flavor>.db; if layout changes, pin path here.
+              pfquest-db export-pfrb --db "pfquest-db/ref/$flavor.db" --dest "$pkg"
+            fi
+            (cd dist && zip -r -q "pfQuest-Reborn-$flavor-$TAG.zip" "$(basename "$pkg")")
+            rm -rf "$pkg"
+          done
+          # Back-compat alias: default zip == epoch flavor.
+          cp "dist/pfQuest-Reborn-epoch-$TAG.zip" "dist/pfQuest-Reborn-$TAG.zip"
+          ls -la dist
       - name: Build release notes
         id: notes
         run: |
@@ -164,4 +183,4 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: pfQuest Reforged ${{ steps.ver.outputs.tag }}
           body: ${{ steps.notes.outputs.notes }}
-          files: dist/pfQuest-Reborn-${{ steps.ver.outputs.tag }}.zip
+          files: dist/pfQuest-Reborn-*.zip
