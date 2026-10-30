@@ -31,6 +31,7 @@ end
 -- Both tooltip hooks share it so they can never render different lines.
 local function BuildQuestGroups(targetKey)
     local questGroups = {}
+    if not targetKey then return questGroups end
     for playerName, targets in pairs(pfQuest.partyQuestData or {}) do
         if targets[targetKey] then
             for _, data in ipairs(targets[targetKey]) do
@@ -72,7 +73,10 @@ local function AppendPartyLines(tooltip, questGroups)
         tooltip:AddLine("|cff555555[|cffffcc00!|cff555555]|r " .. questName, 1, 1, 0)
         for _, line in ipairs(lines) do
             local classColor = GetClassColor(line.player)
-            local perc = line.current / line.total
+            local current = tonumber(line.current) or 0
+            local total = tonumber(line.total) or 0
+            local perc = (total > 0) and (current / total) or 0
+            if perc < 0 then perc = 0 elseif perc > 1 then perc = 1 end
             local r, g
             if perc <= 0.5 then
                 r, g = 1, perc * 2
@@ -80,16 +84,21 @@ local function AppendPartyLines(tooltip, questGroups)
                 r, g = 2 - perc * 2, 1
             end
             local coloredName = string.format("|cFF%02x%02x%02x%s|r",
-                classColor[1] * 255, classColor[2] * 255, classColor[3] * 255, line.player)
+                classColor[1] * 255, classColor[2] * 255, classColor[3] * 255, tostring(line.player or ""))
             tooltip:AddLine(string.format("|cffaaaaaa- |r%s: %s (%d/%d)",
-                coloredName, line.objective, line.current, line.total), r, g, 0)
+                coloredName, tostring(line.objective or "Objective"), current, total), r, g, 0)
         end
     end
     tooltip:AddLine(" ")
     tooltip:Show()
 end
 
+-- HookScript stacks: without this, the epoch+Reborn migration (both folders
+-- installed) or a double ADDON_LOADED would render every line twice.
+local gameTooltipHooked = false
 local function HookGameTooltip()
+    if gameTooltipHooked then return true end
+    gameTooltipHooked = true
     GameTooltip:HookScript("OnTooltipSetUnit", function(self)
         local unitName, unit = self:GetUnit()
         if not unitName or not unit then return end
@@ -103,7 +112,21 @@ local function HookGameTooltip()
     return true
 end
 
+-- Title line of a tooltip frame, whatever frame shows it.
+local function GetTooltipTitle(tooltip)
+    local name = tooltip and tooltip.GetName and tooltip:GetName()
+    local line = (name and _G[name .. "TextLeft1"]) or _G["GameTooltipTextLeft1"]
+    if line and line.GetText then
+        return line:GetText()
+    end
+    return nil
+end
+
+-- SetTooltipHook wraps (never replaces): without this, the retry ticker below
+-- would stack a new wrapper on every tick.
+local pfQuestTooltipHooked = false
 local function HookPfQuestTooltip()
+    if pfQuestTooltipHooked then return true end
     if not pfMap or not pfMap.ShowTooltip then
         return false
     end
@@ -113,61 +136,35 @@ local function HookPfQuestTooltip()
     end
 
     -- Wrap through map's sanctioned seam instead of overwriting its method.
+    pfQuestTooltipHooked = true
     pfMap:SetTooltipHook(function(orig, self, meta, tooltip)
-
         tooltip = tooltip or GameTooltip
 
-        local targetKey = meta.spawn or meta.title
+        local targetKey = meta and (meta.spawn or meta.title)
+        local tooltipName = GetTooltipTitle(tooltip)
 
-        local tooltipName = nil
-        local tooltipText = _G["GameTooltipTextLeft1"]
-        if tooltipText and tooltipText:GetText() then
-            tooltipName = tooltipText:GetText()
+        orig(self, meta, tooltip)
+
+        -- orig() draws the title line; re-read it for the fallback lookup.
+        tooltipName = GetTooltipTitle(tooltip) or tooltipName
+
+        if not (pfQuest.partyapi.IsInGroup() and pfQuest.partyapi.IsTooltipEnabled()) then
+            return
         end
 
-        local inParty = pfQuest.partyapi.IsInGroup()
-        local featureEnabled = pfQuest.partyapi.IsTooltipEnabled()
+        pfQuest.partyapi.CaptureTooltipTarget(meta, tooltipName, targetKey)
 
-        if inParty and featureEnabled then
-            pfQuest.partyapi.CaptureTooltipTarget(meta, tooltipName, targetKey)
+        -- A unit tooltip is the game hook's job; never double-render.
+        if tooltip.GetUnit and select(2, tooltip:GetUnit()) then
+            return
         end
 
-        local hasPartyData = false
-        local matchedKey = nil
-
-        if inParty and featureEnabled then
-            if targetKey then
-                for playerName, targets in pairs(pfQuest.partyQuestData or {}) do
-                    if targets[targetKey] then
-                        hasPartyData = true
-                        matchedKey = targetKey
-                        break
-                    end
-                end
-            end
-
-            if not hasPartyData and tooltipName then
-                for playerName, targets in pairs(pfQuest.partyQuestData or {}) do
-                    if targets[tooltipName] then
-                        hasPartyData = true
-                        matchedKey = tooltipName
-                        break
-                    end
-                end
-            end
+        local questGroups = BuildQuestGroups(targetKey)
+        if not next(questGroups) and tooltipName and tooltipName ~= targetKey then
+            questGroups = BuildQuestGroups(tooltipName)
         end
 
-        if hasPartyData and matchedKey then
-            orig(self, meta, tooltip)
-
-            if not select(2, tooltip:GetUnit()) then
-                AppendPartyLines(tooltip, BuildQuestGroups(matchedKey))
-            end
-
-            tooltip:Show()
-        else
-            orig(self, meta, tooltip)
-        end
+        AppendPartyLines(tooltip, questGroups)
     end)
 
     return true
@@ -179,6 +176,11 @@ hookFrame:RegisterEvent("ADDON_LOADED")
 hookFrame:SetScript("OnEvent", function(self, event, addonName)
     if addonName == "pfQuest-epoch" or addonName == "pfQuest-Reborn" then
         HookGameTooltip()
+        -- pfMap is usually ready by now; only run the ticker when it is not.
+        if HookPfQuestTooltip() then
+            self:UnregisterAllEvents()
+            return
+        end
         local timer = 0
         self:SetScript("OnUpdate", function()
             timer = timer + 1

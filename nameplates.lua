@@ -47,10 +47,14 @@ local function ScanQuestObjectives()
   local activeQuests = {}
   local numEntries = GetNumQuestLogEntries and GetNumQuestLogEntries() or 0
   for qid = 1, numEntries do
-    local questTitle, _, _, _, isHeader, _, complete = GetQuestLogTitle(qid)
+    -- Note: 3.3.5a returns questID as 9th value; older clients return 8 (nil
+    -- here) and fall through to the lookups below.
+    local questTitle, _, _, _, isHeader, _, complete, _, logQuestId = GetQuestLogTitle(qid)
     if questTitle and not isHeader and complete ~= 1 then
-      local questId = nil
-      if GetQuestLink then
+      -- Direct ID from the client: zero lookups. Non-3.3.5a clients get nil
+      -- and use the link / log / index / scan fallbacks below.
+      local questId = (type(logQuestId) == "number" and logQuestId > 0) and logQuestId or nil
+      if not questId and GetQuestLink then
         local link = GetQuestLink(qid)
         questId = link and tonumber(string.match(link, "quest:(%d+)"))
       end
@@ -58,10 +62,17 @@ local function ScanQuestObjectives()
         questId = pfQuest:GetIdByLog(qid, questTitle)
       end
       if not questId and questLoc then
-        for qId, qData in pairs(questLoc) do
-          if qData.T == questTitle then
-            questId = qId
-            break
+        -- O(1) title lookup via the shared name index (rebuilt on locale
+        -- detection); the linear scan below is fallback only. This runs on
+        -- every QUEST_LOG_UPDATE, i.e. every quest kill/loot tick.
+        local byName = pfDatabase.nameIndex["quests"] and pfDatabase.nameIndex["quests"][questTitle]
+        questId = byName and byName[1]
+        if not questId then
+          for qId, qData in pairs(questLoc) do
+            if qData.T == questTitle then
+              questId = qId
+              break
+            end
           end
         end
       end

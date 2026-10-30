@@ -104,4 +104,53 @@ assert(#env.sentAddonMessages > 0, "PLAYER_ENTERING_WORLD should trigger SendAdd
 assert(env.sentAddonMessages[1].prefix == "pfQReborn", "Addon prefix must be pfQReborn, got " .. env.sentAddonMessages[1].prefix)
 print("  ✓ PASS: updatenotify uses pfQReborn prefix and guards against broadcast echo loops")
 
+-- 6. Test nameplate ScanQuestObjectives resolves titles via the name index
+-- (kill-path: runs on every QUEST_LOG_UPDATE, must not linearly scan questLoc)
+print("[TEST] Verifying nameplate title resolution uses the O(1) name index...")
+load_file("nameplates.lua")
+assert(env.pfQuestNameplates and env.pfQuestNameplates.Scan, "pfQuestNameplates.Scan should exist")
+
+env.pfDB = {
+  quests = {
+    loc = { [123] = { T = "Wolf Hunt" } },
+    data = { [123] = { obj = { U = { 101 } } } },
+  },
+  units = { loc = { [101] = "Mangy Wolf" } },
+  items = { loc = {}, data = {} },
+}
+env.pfDatabase = { nameIndex = { quests = { ["Wolf Hunt"] = { 123 } } } }
+env.pfQuest.GetIdByLog = nil -- force the title-resolution path
+env.SetMockQuestLog({
+  { title = "Wolf Hunt", level = 5, objectives = { { text = "Mangy Wolf slain: 0/8", done = false } } },
+})
+env.pfQuestNameplates.Scan()
+local sword = (env.pfQuestConfig.path or "") .. "\\img\\slay"
+assert(env.pfQuestNameplates.questObjectives["Mangy Wolf"] == sword,
+  "index-resolved quest should mark its mob for the nameplate icon")
+print("  ✓ PASS: nameplate scan resolves titles through the O(1) name index")
+
+-- fallback: empty index must still resolve via linear scan (e.g. locale rebuild pending)
+print("[TEST] Verifying nameplate title fallback scan with empty name index...")
+env.pfDatabase.nameIndex = { quests = {} }
+env.pfQuestNameplates.Scan()
+assert(env.pfQuestNameplates.questObjectives["Mangy Wolf"] == sword,
+  "fallback scan should still resolve the quest title")
+print("  ✓ PASS: nameplate scan falls back to linear search when the index is empty")
+
+-- 8. Direct-ID path: 3.3.5a hands the questID as 9th return, so the title
+-- must not need to resolve through any fallback (link / log / index / scan).
+print("[TEST] Verifying nameplate scan uses the client questID directly...")
+env.SetMockQuestLog({
+  { title = "Mismatched Title", level = 5, objectives = { { text = "Mangy Wolf slain: 0/8", done = false } } },
+})
+env.GetQuestLogTitle = function(i)
+  if i ~= 1 then return nil end
+  return "Mismatched Title", 5, nil, nil, nil, nil, nil, nil, 123
+end
+env.pfDatabase.nameIndex = { quests = {} }
+env.pfQuestNameplates.Scan()
+assert(env.pfQuestNameplates.questObjectives["Mangy Wolf"] == sword,
+  "client-provided questID should resolve without any title lookup")
+print("  ✓ PASS: nameplate scan prefers the client questID over title lookups")
+
 print("[TEST] test_performance_guards PASSED successfully!")

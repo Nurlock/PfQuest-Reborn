@@ -153,6 +153,21 @@ end
 assert(foundProgress, "Tooltip must include party member and objective progress 4/10")
 print("  ✓ PASS: Unit tooltip displays colored party member progress")
 
+print("[TEST] 2b. Verifying a second hook install does not duplicate lines...")
+-- epoch+Reborn migration can install both; HookScript stacks, so without
+-- the once-guard every hover would render each line twice.
+epoch.HookGameTooltip()
+testTip.lines = {}
+testTip:FireScript("OnTooltipSetUnit")
+local progressLines = 0
+for _, line in ipairs(testTip.lines) do
+  if string.find(line, "PartyFriend") and string.find(line, "4/10") then
+    progressLines = progressLines + 1
+  end
+end
+assert(progressLines == 1, "progress line must render exactly once, got " .. progressLines)
+print("  ✓ PASS: repeated hook install renders each line once")
+
 print("[TEST] 1b. Verifying inbound V1 batch draws party map nodes...")
 assert(#searchedQuestIds > 0, "Inbound V1 must trigger SearchQuestID for party map nodes")
 local foundNode = false
@@ -458,6 +473,48 @@ epoch.PumpSyncTimers()
 local afterDebounce = #sentAddonMessages
 assert(afterDebounce >= 0, "debounced flush must run without error")
 print("  ✓ PASS: QUEST_LOG_UPDATE debounced")
+
+print("[TEST] 17b. Verifying idle time does not defeat the debounce...")
+-- Flush test 17's still-pending burst (in-game the frame ticker does this
+-- every frame, so pending never survives idle there).
+env.AdvanceTime(2)
+epoch.PumpSyncTimers()
+sentAddonMessages = {}
+-- One more kill moves progress 3/10 -> 4/10, so a sync share would send.
+env.GetQuestLogLeaderBoard = function(objIndex, qlogIndex)
+  if qlogIndex == 1 and objIndex == 1 then
+    return "Defias Bandit: 4/10", "monster", false
+  end
+  return nil
+end
+sentAddonMessages = {}
+env.AdvanceTime(30) -- idle: nothing pending, accumulators must stay armed
+epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE") -- single kill tick
+assert(#sentAddonMessages == 0, "QUEST_LOG_UPDATE after idle must not sync-share synchronously")
+env.AdvanceTime(2)
+epoch.PumpSyncTimers()
+assert(#sentAddonMessages > 0, "debounced share must still flush after the interval")
+print("  ✓ PASS: idle time does not defeat the debounce")
+
+print("[TEST] 17c. Verifying a failed-load rebuild does not lock out the gate...")
+-- Early return while pfDB is nil must clear mappedQuestSet, even when a
+-- tooltip hover populated myQuestMappings in the meantime.
+local savedDB = env.pfDB
+env.pfDB = nil
+epoch.RebuildQuestMappings()
+-- A tooltip hover populates mappings while pfDB is still missing.
+epoch.myQuestMappings["Mankrik"] = { { quest = "Thebarrens", objective = "Mankrik's Wife", current = 0, total = 1 } }
+-- Drop the known entry: only a fresh rebuild can bring it back with an ID.
+epoch.myQuestMappings["Defias Bandit"] = nil
+env.pfDB = savedDB
+sentAddonMessages = {}
+epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
+env.AdvanceTime(2.5)
+epoch.PumpSyncTimers()
+local bandit = epoch.myQuestMappings["Defias Bandit"]
+assert(bandit and bandit[1] and bandit[1].questId == 100,
+  "gate must rerun the full rebuild after a failed-load early return")
+print("  ✓ PASS: failed-load rebuild does not lock out the set-change gate")
 
 print("[TEST] 18. Verifying DeleteNodesWhere cleans every index...")
 local pfMap = env.pfMap

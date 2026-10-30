@@ -201,6 +201,23 @@ end
 
 local myQuestMappings = {}
 
+-- Quest titles covered by the last mapping rebuild. Lets the debounced
+-- quest-log sync skip the full DB scan when only progress counts changed
+-- (the common kill/loot tick) instead of accept/turn-in.
+local mappedQuestSet = {}
+
+local function FindMappedQuestId(questTitle)
+    if not questTitle then return nil end
+    for _, quests in pairs(myQuestMappings) do
+        for _, data in ipairs(quests) do
+            if data.quest == questTitle and data.questId then
+                return data.questId
+            end
+        end
+    end
+    return nil
+end
+
 local function CleanupPartyData()
     local validPlayers = {}
 
@@ -272,6 +289,20 @@ local function InvalidateLogCache()
     cachedLogObjectives = nil
 end
 
+-- True when the player's active quest titles differ from the last full DB
+-- mapping pass (or when mappings are still unpopulated).
+local function HasActiveQuestSetChanged()
+    if next(myQuestMappings) == nil or next(mappedQuestSet) == nil then return true end
+    local activeQuests = GetLogObjectives()
+    for title in pairs(activeQuests) do
+        if not mappedQuestSet[title] then return true end
+    end
+    for title in pairs(mappedQuestSet) do
+        if not activeQuests[title] then return true end
+    end
+    return false
+end
+
 -- One upsert for every objective kind (U/I/O). The four rebuild branches only
 -- differ in target id/type, so they share this instead of drifting apart.
 local function UpsertMapping(targetName, questTitle, questId, objective, current, total, targetId, targetType, itemId)
@@ -317,6 +348,7 @@ local function RebuildQuestMappings()
     end
 
     if not pfDB or not pfDB["quests"] or not pfDB["quests"]["data"] then
+        mappedQuestSet = {} -- failed load must not pose as a completed mapping pass
                     dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - pfDB not available")
         return
     end
@@ -333,12 +365,19 @@ local function RebuildQuestMappings()
         end
     end
 
-    if not GetDBLoc("quests") then
+    local questsLoc = GetDBLoc("quests")
+    if not questsLoc then
+        mappedQuestSet = {} -- same: no titles were actually mapped
                     dbg("|cff33ffccpf|cffffffffQuest:|r REBUILD - No enUS localization table found")
         return
     end
 
-    for questId, localizedData in pairs(GetDBLoc("quests")) do
+    mappedQuestSet = {}
+    for questTitle in pairs(activeQuests) do
+        mappedQuestSet[questTitle] = true
+    end
+
+    for questId, localizedData in pairs(questsLoc) do
         local questTitle = localizedData["T"]
 
         if questTitle and activeQuests[questTitle] then
@@ -546,15 +585,7 @@ local function BroadcastQuestRemove(questId, questTitle)
         title = GetDBLoc("quests")[qid]["T"]
     end
     if not qid and title then
-        for targetKey, quests in pairs(myQuestMappings) do
-            for _, questData in ipairs(quests) do
-                if questData.quest == title and questData.questId then
-                    qid = questData.questId
-                    break
-                end
-            end
-            if qid then break end
-        end
+        qid = FindMappedQuestId(title)
     end
     if not qid or not title then return end
     local channel = GetGroupDistribution() or "PARTY"
@@ -576,17 +607,7 @@ local function ShareQuestData(forceFullSync)
 
     for questTitle in pairs(previousQuestList) do
         if not activeQuests[questTitle] then
-            local questId = nil
-
-            for targetKey, quests in pairs(myQuestMappings) do
-                for _, questData in ipairs(quests) do
-                    if questData.quest == questTitle and questData.questId then
-                        questId = questData.questId
-                        break
-                    end
-                end
-                if questId then break end
-            end
+            local questId = FindMappedQuestId(questTitle)
 
             if questId then
                 local msg = string.format("REMOVEQ:%d:%s", questId, questTitle)
@@ -942,16 +963,7 @@ local function HandleLegacyQuest(sender, message)
 
         StorePartyObjective(sender, targetName, nil, questTitle, objective, current, total)
 
-        local legacyQuestId = nil
-        for targetKey, quests in pairs(myQuestMappings) do
-            for _, data in ipairs(quests) do
-                if data.quest == questTitle and data.questId then
-                    legacyQuestId = data.questId
-                    break
-                end
-            end
-            if legacyQuestId then break end
-        end
+        local legacyQuestId = FindMappedQuestId(questTitle)
         UpdatePartyMapNodes(legacyQuestId, sender, questTitle)
     end
     return true
@@ -1227,7 +1239,12 @@ local function PumpSyncTimers()
         questLogSyncPending = false
         questLogSyncAccum = 0
         if IsInGroup() and IsSyncEnabled() then
-            RebuildQuestMappings()
+            -- Progress-only ticks reuse the existing mappings (ShareQuestData
+            -- refreshes counts from the log itself); rerun the DB scan only
+            -- when the quest set changed.
+            if HasActiveQuestSetChanged() then
+                RebuildQuestMappings()
+            end
             ShareQuestData()
         end
     end
@@ -1269,6 +1286,13 @@ eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
         -- Debounce: kills/loot fire this per tick; rebuild+share at most
         -- once per QUEST_LOG_SYNC_DEBOUNCE seconds, flushed by OnUpdate.
         if IsInGroup() and IsSyncEnabled() then
+            -- Rearm the debounce from this event: idle time before it must not
+            -- count toward the interval, or the first kill after idle syncs
+            -- (and rebuilds) synchronously on the event frame.
+            if not questLogSyncPending then
+                questLogSyncAccum = 0
+                questLogSyncLast = (GetTime and GetTime()) or 0
+            end
             questLogSyncPending = true
         end
     end
