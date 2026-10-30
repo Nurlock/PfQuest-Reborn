@@ -1145,6 +1145,23 @@ local MAX_QUEUED_BATCHES = 16
 local pendingInboundBySender = {}
 local INBOUND_THROTTLE_SECS = 1
 
+-- Pull-request cooldown per sender: a reloaded peer asks once, but a
+-- chatty peer must not turn answers into a broadcast storm.
+local lastSyncRequestBySender = {}
+local SYNC_REQUEST_COOLDOWN_SECS = 10
+
+local function SyncRequestAllowed(sender)
+    if not sender then return false end
+    local now = (GetTime and GetTime()) or 0
+    local last = lastSyncRequestBySender[sender] or -SYNC_REQUEST_COOLDOWN_SECS
+    if now - last < SYNC_REQUEST_COOLDOWN_SECS then
+        return false
+    end
+    lastSyncRequestBySender[sender] = now
+    return true
+end
+local INBOUND_THROTTLE_SECS = 1
+
 local function IsTrustedSender(sender, channel)
     if type(sender) ~= "string" or sender == "" then return false end
     local myName = UnitName and UnitName("player")
@@ -1263,6 +1280,13 @@ eventFrame:SetScript("OnEvent", function(self, event, a1, a2, a3, a4)
         if prefix == "pfqe" then
             if IsSyncEnabled() and IsTrustedSender(sender, channel) then
                 HandlePfqeMessage(sender, message)
+            end
+        elseif prefix == "PFQUEST_SYNC_REQUEST" then
+            -- A peer reloaded (or logged in) mid-party: no membership event
+            -- fires here, so answer their pull with a full share. Per-sender
+            -- cooldown keeps a chatty peer from turning this into a storm.
+            if IsSyncEnabled() and IsTrustedSender(sender, channel) and SyncRequestAllowed(sender) then
+                ShareQuestData(true)
             end
         end
     elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then

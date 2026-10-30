@@ -220,15 +220,15 @@ env.GetNumQuestLogEntries = function() return 1 end
 epoch.eventFrame:FireScript("OnEvent", "QUEST_LOG_UPDATE")
 print("  \u2713 PASS: Abandon prunes our mirror and notifies peers")
 
-print("[TEST] 5. Verifying PFQUEST_SYNC_REQUEST is ignored (no handshake)...")
+print("[TEST] 5. Verifying inbound SYNC_REQUEST is answered...")
+-- A peer that reloaded mid-party pulls; we answer with a full share.
+-- (Invalidate first: the mock log changed without a QUEST_LOG_UPDATE.)
+epoch.InvalidateLogCache()
+epoch.RebuildQuestMappings()
 sentAddonMessages = {}
-env.arg1 = "PFQUEST_SYNC_REQUEST"
-env.arg2 = "1"
-env.arg3 = "PARTY"
-env.arg4 = "PartyFriend"
 epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "PartyFriend")
-assert(#sentAddonMessages == 0, "sync requests must not trigger a response (handshake removed)")
-print("  ✓ PASS: PFQUEST_SYNC_REQUEST ignored")
+assert(#sentAddonMessages > 0, "trusted SYNC_REQUEST must trigger a full share")
+print("  ✓ PASS: SYNC_REQUEST answered")
 
 print("[TEST] 5b. Verifying login sends one pull request...")
 env.GetNumRaidMembers = function() return 0 end
@@ -242,6 +242,19 @@ end
 assert(reqCount == 1, "login must send exactly one sync pull request, got " .. reqCount)
 assert(shareCount >= 1, "login must also push our full state")
 print("  ✓ PASS: Login pulls once and pushes full state")
+
+print("[TEST] 5c. Verifying SYNC_REQUEST answers are cooled down per sender...")
+-- Test 5 just answered PartyFriend, so the cooldown is hot: a repeat and
+-- a self-request must stay silent, then one share after 11 seconds.
+local baseline = #sentAddonMessages
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "PartyFriend")
+assert(#sentAddonMessages == baseline, "repeat SYNC_REQUEST inside cooldown must not re-share")
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "LocalPlayer")
+assert(#sentAddonMessages == baseline, "self SYNC_REQUEST must be ignored")
+env.AdvanceTime(11)
+epoch.eventFrame:FireScript("OnEvent", "CHAT_MSG_ADDON", "PFQUEST_SYNC_REQUEST", "1", "PARTY", "PartyFriend")
+assert(#sentAddonMessages > baseline, "SYNC_REQUEST after cooldown must share again")
+print("  ✓ PASS: SYNC_REQUEST answered once per cooldown")
 
 print("[TEST] 6. Verifying raid traffic stays on PARTY (flood safety)...")
 env.GetNumRaidMembers = function() return 10 end
